@@ -247,3 +247,18 @@ section[data-panel="account"] .row-gap { margin-top: 12px; }
 .update-pill.busy { background: var(--elevated); color: var(--subtext); cursor: default; }
 .update-pill.busy:hover { transform: none; filter: none; }
 .about-row { margin-top: 18px; }
+
+/* Privacy notice */
+#privacy { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; }
+.privacy-card { position: relative; width: min(560px, calc(100vw - 48px)); max-height: calc(100vh - 80px); overflow-y: auto; background: var(--surface); border: 1px solid rgba(255,255,255,.08); border-radius: 16px; padding: 28px 28px 24px; box-shadow: 0 30px 90px rgba(0,0,0,.6); animation: pop .2s ease; text-align: center; }
+.privacy-logo { width: 56px; height: 56px; margin: 0 auto 14px; }
+.privacy-logo svg { width: 56px; height: 56px; }
+.privacy-card h2 { margin: 0 0 20px; font-size: 24px; letter-spacing: -.01em; }
+.privacy-list { list-style: none; margin: 0 0 24px; padding: 0; text-align: left; display: flex; flex-direction: column; gap: 14px; }
+.privacy-list li { display: flex; gap: 12px; align-items: flex-start; font-size: 14px; line-height: 1.5; color: var(--subtext); }
+.privacy-list strong { color: var(--text); font-weight: 600; }
+.privacy-list em { color: var(--text); font-style: normal; background: var(--elevated); padding: 1px 6px; border-radius: 4px; font-size: 13px; }
+.pv-ic { flex: none; width: 26px; height: 26px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 22%, transparent); display: grid; place-items: center; margin-top: 1px; }
+.pv-ic .ic { width: 16px; height: 16px; color: var(--accent); }
+.privacy-actions { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.privacy-actions .pill { min-width: 160px; }

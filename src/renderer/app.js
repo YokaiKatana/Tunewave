@@ -367,6 +367,7 @@
   // ---------- account ----------
   async function signIn() {
     closeModal();
+    if (!localStorage.getItem(PRIVACY_KEY)) { openPrivacy(); return; }
     const url = onYTM() ? await run(window.YTM.commands.signInUrl()) : '';
     if (api.openSignIn) { api.openSignIn(url || ''); toast('Opening your browser to sign in…'); }
     else wv.loadURL(url || YTM_HOME);
@@ -471,7 +472,7 @@
   }
   document.addEventListener('keydown', (e) => {
     const typing = e.target.matches('input, textarea');
-    if (e.key === 'Escape') { if (!$('#modal').hidden) closeModal(); else if (typing) e.target.blur(); return; }
+    if (e.key === 'Escape') { if (!$('#privacy').hidden) { if (localStorage.getItem(PRIVACY_KEY)) closePrivacy(); return; } if (!$('#modal').hidden) closeModal(); else if (typing) e.target.blur(); return; }
     const ctrl = e.ctrlKey || e.metaKey;
     if (ctrl && (e.key === 'k' || e.key === 'l')) { e.preventDefault(); return shortcut('search'); }
     if (ctrl && e.key === 'r') { e.preventDefault(); return shortcut('reload'); }
@@ -502,6 +503,17 @@
     }[s.state];
     if (msg) toastLong(msg);
   });
+
+  // ---------- privacy notice ----------
+  const PRIVACY_KEY = 'tw-privacy-ack-v1';
+  function openPrivacy() { $('#privacy').hidden = false; }
+  function closePrivacy() { $('#privacy').hidden = true; try { localStorage.setItem(PRIVACY_KEY, '1'); } catch {} }
+  $('#btn-privacy-ok').addEventListener('click', closePrivacy);
+  $('#privacy-backdrop').addEventListener('click', () => { if (localStorage.getItem(PRIVACY_KEY)) closePrivacy(); });
+  $('#btn-privacy-source').addEventListener('click', () => api.openExternal && api.openExternal('https://github.com/YokaiKatana/Tunewave'));
+  $('#btn-privacy-show').addEventListener('click', () => { closeModal(); openPrivacy(); });
+  let privacyShown = false;
+  try { if (!localStorage.getItem(PRIVACY_KEY)) { privacyShown = true; setTimeout(openPrivacy, 600); } } catch {}
 
   // ---------- updates ----------
   function showUpdate(u) {
