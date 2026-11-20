@@ -305,7 +305,91 @@ function readFirefoxCookies(dir) {
   }
 }
 
+const dirExists = (p) => { try { return !!p && fs.statSync(p).isDirectory(); } catch { return false; } };
+
+function parseIni(text) {
+  const sections = []; let cur = null;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#') || line.startsWith(';')) continue;
+    const m = line.match(/^\[(.+)\]$/);
+    if (m) { cur = { name: m[1], kv: {} }; sections.push(cur); continue; }
+    const eq = line.indexOf('=');
+    if (cur && eq > 0) cur.kv[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+  }
+  return sections;
+}
+
+// Where Firefox keeps its profiles for this install.
+function firefoxRoots(exe) {
+  const roots = [];
+  if (process.platform === 'win32') roots.push(path.join(process.env.APPDATA || '', 'Mozilla', 'Firefox'));
+  else if (process.platform === 'darwin') roots.push(path.join(os.homedir(), 'Library', 'Application Support', 'Firefox'));
+  else {
+    if (exe && exe.startsWith('/snap/')) roots.push(path.join(os.homedir(), 'snap', 'firefox', 'common', '.mozilla', 'firefox'));
+    roots.push(path.join(os.homedir(), '.mozilla', 'firefox'));
+    roots.push(path.join(os.homedir(), '.var', 'app', 'org.mozilla.firefox', '.mozilla', 'firefox'));
+  }
+  return roots.filter(dirExists);
+}
+
+// The user's normal (default) Firefox profile folder, read from profiles.ini.
+function defaultFirefoxProfile(exe) {
+  for (const root of firefoxRoots(exe)) {
+    const ini = path.join(root, 'profiles.ini');
+    if (!exists(ini)) continue;
+    let sections; try { sections = parseIni(fs.readFileSync(ini, 'utf8')); } catch { continue; }
+    let rel = null, isRel = '1';
+    // Preferred: the [Install...] section names the default profile.
+    for (const s of sections) { if (/^Install/i.test(s.name) && s.kv.Default) { rel = s.kv.Default; isRel = s.kv.IsRelative || '1'; break; } }
+    if (!rel) { // Otherwise a [Profile...] marked Default=1, else a *.default-release folder.
+      let fallback = null;
+      for (const s of sections) {
+        if (!/^Profile/i.test(s.name) || !s.kv.Path) continue;
+        if (s.kv.Default === '1') { rel = s.kv.Path; isRel = s.kv.IsRelative || '1'; break; }
+        if (!fallback && /default-release|\.default$/i.test(s.kv.Path)) fallback = { p: s.kv.Path, r: s.kv.IsRelative || '1' };
+      }
+      if (!rel && fallback) { rel = fallback.p; isRel = fallback.r; }
+    }
+    if (!rel) continue;
+    const dir = isRel === '0' ? rel : path.join(root, rel.replace(/\//g, path.sep));
+    if (dirExists(dir)) return dir;
+  }
+  return null;
+}
+
+// Firefox: reuse the user's normal profile, so their saved Google login is already there.
 async function firefoxFlow(browser, url, partition, ctx) {
+  const profile = defaultFirefoxProfile(browser.exe);
+  if (profile) {
+    // Already signed in to Google in their everyday Firefox? Just use that, no window.
+    let have = []; try { have = readFirefoxCookies(profile); } catch {}
+    if (isLoggedIn(have)) {
+      const n = await importCookies(have, partition);
+      return ctx.finish('done', { browser: browser.name, count: n, reused: true });
+    }
+    // Not signed in yet: open their real Firefox (saved passwords/passkeys available) and wait.
+    ctx.onStatus('opened', { browser: browser.name, real: true });
+    try { const p = spawn(browser.exe, [url], { stdio: 'ignore', detached: true }); p.on('error', () => {}); p.unref(); } catch {}
+    const started = Date.now();
+    while (!ctx.finished && Date.now() - started < TIMEOUT_MS) {
+      await wait(2000);
+      let c = []; try { c = readFirefoxCookies(profile); } catch {}
+      if (isLoggedIn(c)) {
+        await wait(2500); // let the last cookies land
+        let all = c; try { all = readFirefoxCookies(profile); } catch {}
+        const n = await importCookies(all, partition);
+        return ctx.finish('done', { browser: browser.name, count: n, reused: false });
+      }
+    }
+    if (!ctx.finished) ctx.finish('error', { message: 'Sign-in timed out' });
+    return;
+  }
+  // No normal profile found: fall back to a clean temporary profile.
+  return firefoxTempFlow(browser, url, partition, ctx);
+}
+
+async function firefoxTempFlow(browser, url, partition, ctx) {
   const dir = profileDir(browser.exe, 'firefox');
   ctx.dir = dir;
   rmrf(dir); fs.mkdirSync(dir, { recursive: true });

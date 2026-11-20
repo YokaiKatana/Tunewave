@@ -15,7 +15,9 @@ Download `Tunewave-Portable-X.Y.Z-Windows.zip` from the [Releases](../../release
 1. Unzip it somewhere permanent, e.g. `C:\Users\<you>\Apps\Tunewave`.
 2. Double-click **Tunewave.exe**. To pin it, right-click the running icon in the taskbar and choose **Pin to taskbar**.
 3. Windows SmartScreen may say "Windows protected your PC" because the app isn't code-signed. Click **More info → Run anyway**.
-4. Click **Sign in** in the sidebar. Google's sign-in page opens in your default browser (Firefox, Chrome, Edge, Brave, Vivaldi and Opera are supported; otherwise the first supported one installed) in a temporary, clean window. Sign in with the Google account that has Premium. Passwords, passkeys (including scanning a QR code with your phone) and "tap Yes on your phone" all work. When you're signed in, the window closes by itself and Tunewave loads your library. You only need to do this once.
+4. Click **Sign in** in the sidebar. If you're already signed in to Google in your default browser (Firefox, Chrome, Edge or Brave), Tunewave reuses that login straight away — you may not even see a window. If you're not signed in, your browser opens Google's sign-in page (with your saved passwords and passkeys available, including scanning a QR code with your phone); finish there and Tunewave continues on its own. You only need to do this once.
+
+   *Why a browser?* Google blocks sign-in inside apps' built-in windows ("This browser or app may not be secure"). Tunewave reads only the YouTube/Google login cookies and never touches your password. On Firefox it reuses your normal profile; on Chrome/Edge/Brave it uses a clean temporary one.
 
    *Why a browser?* Google blocks sign-in inside apps' built-in windows ("This browser or app may not be secure"). Tunewave copies only the YouTube/Google login cookies from that temporary window and then deletes it.
 

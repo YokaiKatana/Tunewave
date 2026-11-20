@@ -373,7 +373,7 @@
   }
   function afterSignIn() {
     wv.loadURL(YTM_HOME);
-    toast('Signed in, loading your library…');
+    toastLong('Signed in with your Google account. Loading your library…');
     setTimeout(() => refreshPlaylists(), 4000);
   }
   async function signOut() {
@@ -493,7 +493,9 @@
   if (api.onSignedIn) api.onSignedIn(afterSignIn);
   if (api.onSigninStatus) api.onSigninStatus((s) => {
     const msg = {
-      opened: `Sign in with Google in the ${s.browser || 'browser'} window. It closes by itself when you're done.`,
+      opened: s.real
+        ? `Opening ${s.browser || 'your browser'}. If you're already signed in to Google there, Tunewave will pick it up; otherwise sign in and it'll continue automatically.`
+        : `Sign in with Google in the ${s.browser || 'browser'} window. It closes by itself when you're done.`,
       cancelled: 'Sign-in cancelled.',
       error: `Sign-in didn't finish${s.message ? ': ' + s.message : ''}. Try again.`,
       fallback: "Couldn't find a supported browser (Firefox, Chrome, Edge, Brave), so trying sign-in inside Tunewave instead.",
