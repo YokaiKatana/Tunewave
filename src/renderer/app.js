@@ -25,6 +25,10 @@
 
   // ---------- toast ----------
   let toastTimer;
+  function toastLong(msg) {
+    const t = $('#toast'); t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), 6000);
+  }
   function toast(msg) {
     const t = $('#toast'); t.textContent = msg; t.hidden = false;
     clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), 2200);
@@ -364,7 +368,7 @@
   async function signIn() {
     closeModal();
     const url = onYTM() ? await run(window.YTM.commands.signInUrl()) : '';
-    if (api.openSignIn) { api.openSignIn(url || ''); toast('Sign in in the window that just opened'); }
+    if (api.openSignIn) { api.openSignIn(url || ''); toast('Opening your browser to sign in…'); }
     else wv.loadURL(url || YTM_HOME);
   }
   function afterSignIn() {
@@ -487,6 +491,15 @@
   api.onPlayerCommand((c) => cmd(c));
   if (api.onShortcut) api.onShortcut(shortcut);
   if (api.onSignedIn) api.onSignedIn(afterSignIn);
+  if (api.onSigninStatus) api.onSigninStatus((s) => {
+    const msg = {
+      opened: `Sign in with Google in the ${s.browser || 'browser'} window. It closes by itself when you're done.`,
+      cancelled: 'Sign-in cancelled.',
+      error: `Sign-in didn't finish${s.message ? ': ' + s.message : ''}. Try again.`,
+      fallback: "Couldn't find Chrome, Edge or Brave, so trying sign-in inside Tunewave instead.",
+    }[s.state];
+    if (msg) toastLong(msg);
+  });
 
   // ---------- updates ----------
   function showUpdate(u) {

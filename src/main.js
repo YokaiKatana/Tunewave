@@ -171,9 +171,25 @@ let signInWin = null;
 const DEFAULT_SIGNIN = 'https://accounts.google.com/ServiceLogin?ltmpl=music&service=youtube&passive=true&continue=' +
   encodeURIComponent('https://www.youtube.com/signin?action_handle_signin=true&next=' + encodeURIComponent(YTM_ORIGIN + '/'));
 
+const { signInWithBrowser } = require('./browser-signin');
+const sendSignin = (state, info = {}) => { if (win && !win.isDestroyed()) win.webContents.send('signin-status', { state, ...info }); };
+
 ipcMain.on('open-signin', (_e, url) => {
-  if (signInWin && !signInWin.isDestroyed()) { signInWin.focus(); return; }
   const start = typeof url === 'string' && isAllowedInApp(url) ? url : DEFAULT_SIGNIN;
+  // Preferred: your real browser (Google allows sign-in there, including passkeys / QR codes).
+  signInWithBrowser({
+    url: start, partition: PARTITION,
+    onStatus: (state, info) => {
+      if (state === 'no-browser') { sendSignin('fallback'); openSignInWindow(start); return; }
+      if (state === 'done') { sendSignin('done', info); if (win) { if (win.isMinimized()) win.restore(); win.focus(); win.webContents.send('signed-in'); } return; }
+      sendSignin(state, info);
+    },
+  });
+});
+
+// Fallback: Google's page in an app window (Google may refuse this; used only when no browser is found).
+function openSignInWindow(start) {
+  if (signInWin && !signInWin.isDestroyed()) { signInWin.focus(); return; }
   signInWin = new BrowserWindow({
     width: 500, height: 720, parent: win, modal: false, resizable: true,
     title: 'Sign in with Google', backgroundColor: '#ffffff', autoHideMenuBar: true,
@@ -206,7 +222,7 @@ ipcMain.on('open-signin', (_e, url) => {
   });
   signInWin.on('closed', () => { signInWin = null; });
   signInWin.loadURL(start);
-});
+}
 
 // ---- Updates ----
 // Installed version: downloads updates in the background from GitHub Releases and installs on restart.
