@@ -40,18 +40,20 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "artifactName": "Tunewave-Portable-${version}-Windows.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "Tunewave"
+      "shortcutName": "Tunewave",
+      "artifactName": "Tunewave-Setup-${version}.exe"
     },
     "publish": null
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/YokaiKatana/tunewave.git"
+    "url": "https://github.com/YokaiKatana/Tunewave.git"
   }
 }

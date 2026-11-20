@@ -10,7 +10,7 @@ A Spotify-style desktop player for **YouTube Music**. Sign in with your own YouT
 
 ## Run it (Windows)
 
-Download the latest installer (`Tunewave Setup x.y.z.exe`) or zip from the [Releases](../../releases) page. If you use the zip:
+Download from the [Releases](../../releases) page: `Tunewave-Setup-X.Y.Z.exe` (installer) or `Tunewave-Portable-X.Y.Z-Windows.zip` (portable). For the portable version:
 
 1. Unzip it somewhere permanent, e.g. `C:\Users\<you>\Apps\Tunewave`.
 2. Double-click **Tunewave.exe**. To pin it, right-click the running icon in the taskbar and choose **Pin to taskbar**.
@@ -32,14 +32,12 @@ YouTube sometimes changes its website. If a button stops working, open **Setting
 
 ## Making a release
 
-GitHub Actions builds the Windows installer for you. Push a version tag and the installer and zip get attached to a new release:
+Releases are automatic. Every push to `main` builds the Windows app with GitHub Actions. When the `version` in `package.json` hasn't been released yet, a new GitHub Release (`vX.Y.Z`) is created with two downloads:
 
-```
-git tag v1.0.1
-git push origin v1.0.1
-```
+- `Tunewave-Setup-X.Y.Z.exe`: the installer
+- `Tunewave-Portable-X.Y.Z-Windows.zip`: the portable version (no install)
 
-You can also run the **Build Windows app** workflow by hand from the Actions tab. The files appear as a downloadable artifact on the run.
+To publish an update, bump `version` in `package.json` (e.g. `1.0.0` → `1.0.1`) and push.
 
 ## Build from source
 
