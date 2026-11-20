@@ -1,53 +1,196 @@
-// Sign in with Google in a real browser (Chrome / Edge / Brave), then copy the
-// YouTube login into Tunewave.
+// Sign in with Google in a real browser, then copy the YouTube login into Tunewave.
 //
 // Google blocks sign-in inside apps' built-in browser windows ("This browser or app may
-// not be secure"). So instead we open your installed browser with a fresh, temporary
+// not be secure"). So Tunewave opens your browser (your default one if it's supported:
+// Firefox, Chrome, Edge, Brave, Vivaldi, Opera or Chromium) with a fresh, temporary
 // profile. You sign in on Google's real page there (passwords, passkeys, QR codes and
-// phone prompts all work). Once YouTube Music has logged you in, Tunewave copies the
-// youtube.com / google.com login cookies into its own storage, closes that browser
-// window and deletes the temporary profile.
+// phone prompts all work). Once YouTube has logged you in, Tunewave copies only the
+// youtube.com / google.com login cookies into its own storage, closes that window and
+// deletes the temporary profile.
+//
+//  - Chromium browsers: cookies are read over the DevTools protocol.
+//  - Firefox: cookies are read from the temporary profile's cookies.sqlite file.
 
 const { app, session } = require('electron');
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 const TIMEOUT_MS = 10 * 60 * 1000;
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const exists = (p) => { try { return !!p && fs.statSync(p).isFile(); } catch { return false; } };
+const run = (cmd, args) => new Promise((res) => execFile(cmd, args, { windowsHide: true, timeout: 8000 }, (err, out) => res(err ? '' : String(out))));
 
-function findBrowser() {
-  const env = process.env;
-  const candidates = [];
+// ---------- which browser ----------
+function kindOf(exe) {
+  const b = path.basename(exe).toLowerCase();
+  if (/firefox|librewolf|waterfox|floorp|zen/.test(b)) return 'firefox';
+  if (/chrome|chromium|msedge|microsoft-edge|edge|brave|vivaldi|opera/.test(b)) return 'chromium';
+  return null;
+}
+function nameOf(exe) {
+  const b = exe.toLowerCase();
+  if (b.includes('firefox')) return 'Firefox';
+  if (b.includes('librewolf')) return 'LibreWolf';
+  if (b.includes('edge')) return 'Microsoft Edge';
+  if (b.includes('brave')) return 'Brave';
+  if (b.includes('vivaldi')) return 'Vivaldi';
+  if (b.includes('opera')) return 'Opera';
+  if (b.includes('chromium')) return 'Chromium';
+  if (b.includes('chrome')) return 'Google Chrome';
+  return path.basename(exe);
+}
+
+async function defaultBrowser() {
+  try {
+    if (process.platform === 'win32') {
+      const q = await run('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice', '/v', 'ProgId']);
+      const progId = (q.match(/ProgId\s+REG_SZ\s+(\S+)/) || [])[1];
+      if (!progId) return null;
+      const c = await run('reg', ['query', `HKCR\\${progId}\\shell\\open\\command`, '/ve']);
+      const cmd = (c.match(/REG_(?:EXPAND_)?SZ\s+(.+)/) || [])[1] || '';
+      const exe = (cmd.match(/^"([^"]+)"/) || cmd.match(/^(\S+\.exe)/i) || [])[1];
+      return exe && exists(exe) ? exe : null;
+    }
+    if (process.platform === 'darwin') {
+      const out = await run('defaults', ['read', 'com.apple.LaunchServices/com.apple.launchservices.secure', 'LSHandlers']);
+      const chunk = out.split('},').find((s) => /LSHandlerURLScheme = https;/.test(s)) || '';
+      const id = ((chunk.match(/LSHandlerRoleAll = "?([^";]+)"?;/) || [])[1] || '').toLowerCase();
+      const map = {
+        'org.mozilla.firefox': '/Applications/Firefox.app/Contents/MacOS/firefox',
+        'com.google.chrome': '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        'com.microsoft.edgemac': '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+        'com.brave.browser': '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
+        'com.vivaldi.vivaldi': '/Applications/Vivaldi.app/Contents/MacOS/Vivaldi',
+        'org.chromium.chromium': '/Applications/Chromium.app/Contents/MacOS/Chromium',
+        'io.gitlab.librewolf-community': '/Applications/LibreWolf.app/Contents/MacOS/librewolf',
+      };
+      return exists(map[id]) ? map[id] : null;
+    }
+    // Linux
+    const desktop = (await run('xdg-settings', ['get', 'default-web-browser'])).trim();
+    if (!desktop) return null;
+    const dirs = [path.join(os.homedir(), '.local/share/applications'), '/usr/local/share/applications', '/usr/share/applications', '/var/lib/snapd/desktop/applications'];
+    for (const d of dirs) {
+      const f = path.join(d, desktop);
+      if (!exists(f)) continue;
+      const execLine = (fs.readFileSync(f, 'utf8').match(/^Exec=(.+)$/m) || [])[1] || '';
+      let exe = execLine.split(/\s+/).find((t) => t && !t.includes('=') && t !== 'env');
+      if (exe && !exe.startsWith('/')) exe = await whichBin(exe);
+      if (exe && exists(exe)) return exe;
+    }
+  } catch {}
+  return null;
+}
+
+async function whichBin(bin) {
+  for (const d of (process.env.PATH || '').split(':').concat(['/usr/bin', '/usr/local/bin', '/snap/bin'])) {
+    const p = path.join(d, bin); if (exists(p)) return p;
+  }
+  return null;
+}
+
+function installedBrowsers() {
+  const env = process.env; const list = [];
   if (process.platform === 'win32') {
     const pf = env['ProgramFiles'] || 'C:\\Program Files';
     const pf86 = env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
     const local = env['LOCALAPPDATA'] || '';
-    candidates.push(
-      { name: 'Google Chrome', exe: path.join(pf, 'Google\\Chrome\\Application\\chrome.exe') },
-      { name: 'Google Chrome', exe: path.join(pf86, 'Google\\Chrome\\Application\\chrome.exe') },
-      { name: 'Google Chrome', exe: path.join(local, 'Google\\Chrome\\Application\\chrome.exe') },
-      { name: 'Microsoft Edge', exe: path.join(pf86, 'Microsoft\\Edge\\Application\\msedge.exe') },
-      { name: 'Microsoft Edge', exe: path.join(pf, 'Microsoft\\Edge\\Application\\msedge.exe') },
-      { name: 'Brave', exe: path.join(pf, 'BraveSoftware\\Brave-Browser\\Application\\brave.exe') },
-      { name: 'Brave', exe: path.join(local, 'BraveSoftware\\Brave-Browser\\Application\\brave.exe') },
+    list.push(
+      path.join(pf, 'Google\\Chrome\\Application\\chrome.exe'), path.join(pf86, 'Google\\Chrome\\Application\\chrome.exe'), path.join(local, 'Google\\Chrome\\Application\\chrome.exe'),
+      path.join(pf86, 'Microsoft\\Edge\\Application\\msedge.exe'), path.join(pf, 'Microsoft\\Edge\\Application\\msedge.exe'),
+      path.join(pf, 'BraveSoftware\\Brave-Browser\\Application\\brave.exe'), path.join(local, 'BraveSoftware\\Brave-Browser\\Application\\brave.exe'),
+      path.join(pf, 'Mozilla Firefox\\firefox.exe'), path.join(pf86, 'Mozilla Firefox\\firefox.exe'),
     );
   } else if (process.platform === 'darwin') {
-    candidates.push(
-      { name: 'Google Chrome', exe: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' },
-      { name: 'Microsoft Edge', exe: '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge' },
-      { name: 'Brave', exe: '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser' },
-      { name: 'Chromium', exe: '/Applications/Chromium.app/Contents/MacOS/Chromium' },
-    );
+    list.push('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+      '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser', '/Applications/Firefox.app/Contents/MacOS/firefox', '/Applications/Chromium.app/Contents/MacOS/Chromium');
   } else {
-    const dirs = (env.PATH || '/usr/bin:/usr/local/bin').split(':').concat(['/usr/bin', '/snap/bin', '/var/lib/flatpak/exports/bin']);
-    for (const [name, bins] of [['Google Chrome', ['google-chrome', 'google-chrome-stable']], ['Chromium', ['chromium', 'chromium-browser']], ['Microsoft Edge', ['microsoft-edge', 'microsoft-edge-stable']], ['Brave', ['brave-browser', 'brave']]]) {
-      for (const b of bins) for (const d of dirs) candidates.push({ name, exe: path.join(d, b) });
-    }
+    const dirs = (env.PATH || '').split(':').concat(['/usr/bin', '/usr/local/bin', '/snap/bin']);
+    for (const b of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'microsoft-edge', 'microsoft-edge-stable', 'brave-browser', 'brave', 'firefox'])
+      for (const d of dirs) list.push(path.join(d, b));
   }
-  return candidates.find((c) => { try { return c.exe && fs.statSync(c.exe).isFile(); } catch { return false; } }) || null;
+  return list.filter(exists);
 }
 
-// Minimal Chrome DevTools Protocol client over WebSocket (Node's built-in WebSocket).
+// Your default browser if supported, otherwise the first supported one installed.
+async function pickBrowser() {
+  const def = await defaultBrowser();
+  const exe = (def && kindOf(def)) ? def : installedBrowsers().find((e) => kindOf(e));
+  return exe ? { exe, kind: kindOf(exe), name: nameOf(exe), isDefault: exe === def } : null;
+}
+
+// ---------- shared helpers ----------
+const bare = (d) => String(d || '').replace(/^\./, '');
+const KEEP = (domain) => /(^|\.)youtube\.com$/.test(bare(domain)) || /(^|\.)google\.com$/.test(bare(domain));
+const isLoggedIn = (cookies) => {
+  const yt = cookies.filter((c) => /(^|\.)youtube\.com$/.test(bare(c.domain)));
+  const has = (n) => yt.some((c) => c.name === n && c.value);
+  return has('LOGIN_INFO') && (has('SAPISID') || has('__Secure-3PAPISID'));
+};
+
+// cookies: [{ name, value, domain, path, expires(sec), session, secure, httpOnly, sameSite: 'Strict'|'Lax'|'None'|undefined }]
+async function importCookies(cookies, partition) {
+  const ses = session.fromPartition(partition);
+  const yearFromNow = Date.now() / 1000 + 365 * 24 * 3600;
+  let n = 0;
+  for (const c of cookies) {
+    if (!KEEP(c.domain)) continue;
+    let sameSite = c.sameSite === 'Strict' ? 'strict' : c.sameSite === 'Lax' ? 'lax' : c.sameSite === 'None' ? 'no_restriction' : 'unspecified';
+    if (sameSite === 'no_restriction' && !c.secure) sameSite = 'unspecified';
+    const details = {
+      url: `https://${bare(c.domain)}${c.path || '/'}`,
+      name: c.name, value: c.value, path: c.path || '/',
+      secure: !!c.secure, httpOnly: !!c.httpOnly,
+      expirationDate: c.session || !c.expires || c.expires < 0 ? yearFromNow : c.expires,
+      sameSite,
+    };
+    // __Host- cookies must not carry a Domain attribute; host-only cookies don't start with a dot.
+    if (!c.name.startsWith('__Host-') && String(c.domain).startsWith('.')) details.domain = c.domain;
+    try { await ses.cookies.set(details); n++; } catch {}
+  }
+  await ses.cookies.flushStore();
+  return n;
+}
+
+function rmrf(dir) {
+  for (let i = 0; i < 12; i++) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); return; } catch {}
+    const t = Date.now(); while (Date.now() - t < 300) { /* wait for the browser to release its files */ }
+  }
+}
+
+// Snap-packaged browsers on Linux can only write to non-hidden folders in your home.
+function profileDir(exe, tag) {
+  if (process.platform === 'linux' && exe.startsWith('/snap/')) {
+    const snapName = path.basename(exe).replace(/-browser$/, '');
+    return path.join(os.homedir(), 'snap', snapName, 'common', `tunewave-${tag}`);
+  }
+  return path.join(app.getPath('userData'), `signin-${tag}`);
+}
+
+// Kill any browser process started with our temporary profile (some browsers hand off to a child process).
+async function killByProfile(dir) {
+  if (process.platform === 'win32') {
+    const esc = dir.replace(/'/g, "''");
+    await run('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+      `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains('${esc}') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`]);
+  } else {
+    await run('pkill', ['-f', dir]);
+  }
+}
+async function runningByProfile(dir) {
+  if (process.platform === 'win32') {
+    const esc = dir.replace(/'/g, "''");
+    const out = await run('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+      `(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains('${esc}') }).Count`]);
+    return parseInt(out.trim(), 10) > 0;
+  }
+  return (await run('pgrep', ['-f', dir])).trim().length > 0;
+}
+
+// ---------- Chromium (Chrome / Edge / Brave / Vivaldi / Opera) ----------
 function connectCDP(wsUrl) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(wsUrl);
@@ -68,109 +211,161 @@ function connectCDP(wsUrl) {
   });
 }
 
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-
 async function readDevToolsPort(dir, proc) {
   const file = path.join(dir, 'DevToolsActivePort');
-  for (let i = 0; i < 100; i++) {
-    if (proc.exitCode !== null) throw new Error('The browser closed before sign-in started');
+  for (let i = 0; i < 150; i++) {
     try {
       const [port, wsPath] = fs.readFileSync(file, 'utf8').split(/\r?\n/);
       if (port && wsPath) return `ws://127.0.0.1:${port.trim()}${wsPath.trim()}`;
     } catch {}
+    if (proc.exitCode !== null && i > 25) throw new Error('The browser closed before sign-in started');
     await wait(200);
   }
   throw new Error('The browser did not start in time');
 }
 
-const KEEP = (domain) => /(^|\.)youtube\.com$/.test(domain.replace(/^\./, '')) || /(^|\.)google\.com$/.test(domain.replace(/^\./, ''));
-const isLoggedIn = (cookies) => {
-  const yt = cookies.filter((c) => /(^|\.)youtube\.com$/.test(c.domain.replace(/^\./, '')));
-  const has = (n) => yt.some((c) => c.name === n && c.value);
-  return has('LOGIN_INFO') && (has('SAPISID') || has('__Secure-3PAPISID'));
-};
+const fromCDP = (c) => ({ name: c.name, value: c.value, domain: c.domain, path: c.path, expires: c.expires, session: c.session, secure: c.secure, httpOnly: c.httpOnly, sameSite: c.sameSite });
 
-async function importCookies(cookies, partition) {
-  const ses = session.fromPartition(partition);
-  const yearFromNow = Date.now() / 1000 + 365 * 24 * 3600;
-  let n = 0;
-  for (const c of cookies) {
-    if (!KEEP(c.domain)) continue;
-    const host = c.domain.replace(/^\./, '');
-    const details = {
-      url: `https://${host}${c.path || '/'}`,
-      name: c.name, value: c.value, path: c.path || '/',
-      secure: !!c.secure, httpOnly: !!c.httpOnly,
-      expirationDate: c.session || !c.expires || c.expires < 0 ? yearFromNow : c.expires,
-      sameSite: c.sameSite === 'Strict' ? 'strict' : c.sameSite === 'Lax' ? 'lax' : c.sameSite === 'None' ? 'no_restriction' : 'unspecified',
-    };
-    // __Host- cookies must not carry a Domain attribute; host-only cookies don't start with a dot.
-    if (!c.name.startsWith('__Host-') && c.domain.startsWith('.')) details.domain = c.domain;
-    try { await ses.cookies.set(details); n++; } catch {}
-  }
-  await ses.cookies.flushStore();
-  return n;
-}
-
-function rmrf(dir) {
-  for (let i = 0; i < 10; i++) {
-    try { fs.rmSync(dir, { recursive: true, force: true }); return; } catch {}
-    const t = Date.now(); while (Date.now() - t < 300) { /* brief wait for the browser to release files */ }
-  }
-}
-
-let active = null;
-
-// onStatus(state, info) states: 'opened' | 'done' | 'cancelled' | 'error' | 'no-browser'
-async function signInWithBrowser({ url, partition, onStatus }) {
-  if (active) { onStatus('opened', { browser: active.name, again: true }); return; }
-  const browser = findBrowser();
-  if (!browser) { onStatus('no-browser'); return; }
-
-  const dir = path.join(app.getPath('userData'), 'signin-browser');
+async function chromiumFlow(browser, url, partition, ctx) {
+  const dir = profileDir(browser.exe, 'chromium');
+  ctx.dir = dir;
   rmrf(dir); fs.mkdirSync(dir, { recursive: true });
-
   const proc = spawn(browser.exe, [
     `--user-data-dir=${dir}`,
     '--remote-debugging-port=0',
-    '--remote-allow-origins=*',
     '--no-first-run', '--no-default-browser-check', '--disable-sync',
     '--disable-features=msEdgeFRE,msImplicitSignin,SigninInterceptBubble',
     '--new-window', '--window-size=520,760',
+    ...(ctx.extraArgs || []),
     url,
-  ], { detached: false, stdio: 'ignore' });
-  active = { name: browser.name, proc };
+  ], { stdio: 'ignore' });
+  ctx.proc = proc;
+  proc.on('error', (e) => ctx.finish('error', { message: e.message }));
 
-  let cdp = null; let finished = false;
-  const finish = (state, info) => {
-    if (finished) return; finished = true;
-    if (cdp) { cdp.send('Browser.close').catch(() => {}); setTimeout(() => cdp && cdp.close(), 500); }
-    setTimeout(() => { try { if (proc.exitCode === null) proc.kill(); } catch {} rmrf(dir); }, 1500);
-    active = null;
-    onStatus(state, info);
-  };
-  proc.on('exit', () => { if (!finished) finish('cancelled'); });
-  proc.on('error', (e) => finish('error', { message: e.message }));
-
-  try {
-    cdp = await connectCDP(await readDevToolsPort(dir, proc));
-    onStatus('opened', { browser: browser.name });
-    const started = Date.now();
-    while (!finished && Date.now() - started < TIMEOUT_MS) {
-      await wait(1500);
-      let res; try { res = await cdp.send('Storage.getCookies'); } catch { break; }
-      if (res && res.cookies && isLoggedIn(res.cookies)) {
-        await wait(2000); // let the last cookies land
-        const all = (await cdp.send('Storage.getCookies')).cookies;
-        const n = await importCookies(all, partition);
-        finish('done', { browser: browser.name, count: n });
-        return;
-      }
+  ctx.cdp = await connectCDP(await readDevToolsPort(dir, proc));
+  ctx.onStatus('opened', { browser: browser.name });
+  ctx.closeBrowser = async () => { try { await ctx.cdp.send('Browser.close'); } catch {} setTimeout(() => ctx.cdp && ctx.cdp.close(), 500); };
+  const started = Date.now();
+  while (!ctx.finished && Date.now() - started < TIMEOUT_MS) {
+    await wait(1500);
+    let res; try { res = await ctx.cdp.send('Storage.getCookies'); } catch { return ctx.finish('cancelled'); }
+    const cookies = (res && res.cookies || []).map(fromCDP);
+    if (isLoggedIn(cookies)) {
+      await wait(2000); // let the last cookies land
+      const all = ((await ctx.cdp.send('Storage.getCookies')).cookies || []).map(fromCDP);
+      const n = await importCookies(all, partition);
+      return ctx.finish('done', { browser: browser.name, count: n });
     }
-    if (!finished) finish(Date.now() - started >= TIMEOUT_MS ? 'error' : 'cancelled', { message: 'Sign-in timed out' });
-  } catch (e) {
-    finish('error', { message: e.message });
+  }
+  if (!ctx.finished) ctx.finish('error', { message: 'Sign-in timed out' });
+}
+
+// ---------- Firefox ----------
+const FIREFOX_PREFS = `
+user_pref("browser.aboutwelcome.enabled", false);
+user_pref("browser.shell.checkDefaultBrowser", false);
+user_pref("browser.startup.homepage_override.mstone", "ignore");
+user_pref("browser.startup.firstrunSkipsHomepage", true);
+user_pref("startup.homepage_welcome_url", "");
+user_pref("startup.homepage_welcome_url.additional", "");
+user_pref("trailhead.firstrun.didSeeAboutWelcome", true);
+user_pref("datareporting.policy.dataSubmissionPolicyBypassNotification", true);
+user_pref("datareporting.policy.firstRunURL", "");
+user_pref("toolkit.telemetry.reportingpolicy.firstRun", false);
+user_pref("browser.tabs.warnOnClose", false);
+user_pref("browser.sessionstore.resume_from_crash", false);
+user_pref("signon.rememberSignons", false);
+user_pref("extensions.autoDisableScopes", 15);
+`;
+
+function readFirefoxCookies(dir) {
+  const src = path.join(dir, 'cookies.sqlite');
+  if (!exists(src)) return [];
+  const { DatabaseSync } = require('node:sqlite');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-ffc-'));
+  try {
+    // Copy the database and its write-ahead log so we see cookies Firefox hasn't merged yet.
+    fs.copyFileSync(src, path.join(tmp, 'c.sqlite'));
+    if (exists(src + '-wal')) fs.copyFileSync(src + '-wal', path.join(tmp, 'c.sqlite-wal'));
+    const db = new DatabaseSync(path.join(tmp, 'c.sqlite'));
+    let rows = [];
+    try { rows = db.prepare('SELECT name, value, host, path, expiry, isSecure, isHttpOnly, sameSite FROM moz_cookies').all(); }
+    finally { db.close(); }
+    return rows.map((r) => {
+      let exp = Number(r.expiry) || 0;
+      if (exp > 1e11) exp = exp / 1000; // newer Firefox stores milliseconds
+      return {
+        name: r.name, value: r.value, domain: r.host, path: r.path, expires: exp, session: false,
+        secure: !!r.isSecure, httpOnly: !!r.isHttpOnly,
+        sameSite: r.sameSite === 2 ? 'Strict' : r.sameSite === 1 ? 'Lax' : r.sameSite === 0 ? 'None' : undefined,
+      };
+    });
+  } finally {
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
   }
 }
 
-module.exports = { signInWithBrowser, findBrowser };
+async function firefoxFlow(browser, url, partition, ctx) {
+  const dir = profileDir(browser.exe, 'firefox');
+  ctx.dir = dir;
+  rmrf(dir); fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'user.js'), FIREFOX_PREFS);
+  const proc = spawn(browser.exe, ['-profile', dir, '-no-remote', '-new-instance', '-new-window', url], { stdio: 'ignore' });
+  ctx.proc = proc;
+  proc.on('error', (e) => ctx.finish('error', { message: e.message }));
+  ctx.closeBrowser = async () => { try { proc.kill(); } catch {} await killByProfile(dir); };
+  ctx.onStatus('opened', { browser: browser.name });
+
+  const started = Date.now(); let notRunning = 0; let tick = 0;
+  while (!ctx.finished && Date.now() - started < TIMEOUT_MS) {
+    await wait(2000); tick++;
+    let cookies = [];
+    try { cookies = readFirefoxCookies(dir); } catch {}
+    if (isLoggedIn(cookies)) {
+      await wait(2500); // let the last cookies land
+      let all = cookies; try { all = readFirefoxCookies(dir); } catch {}
+      const n = await importCookies(all, partition);
+      return ctx.finish('done', { browser: browser.name, count: n });
+    }
+    // Detect the window being closed (Firefox may hand off to a child process, so check by profile).
+    if (tick >= 4 && tick % 3 === 0) {
+      const alive = proc.exitCode === null || await runningByProfile(dir);
+      notRunning = alive ? 0 : notRunning + 1;
+      if (notRunning >= 2) return ctx.finish('cancelled');
+    }
+  }
+  if (!ctx.finished) ctx.finish('error', { message: 'Sign-in timed out' });
+}
+
+// ---------- entry point ----------
+let active = null;
+
+// onStatus(state, info) states: 'opened' | 'done' | 'cancelled' | 'error' | 'no-browser'
+async function signInWithBrowser({ url, partition, onStatus, extraArgs }) {
+  if (active) { onStatus('opened', { browser: active.name, again: true }); return; }
+  const browser = await pickBrowser();
+  if (!browser) { onStatus('no-browser'); return; }
+
+  const ctx = { name: browser.name, onStatus, extraArgs, finished: false, proc: null, cdp: null, dir: null, closeBrowser: null };
+  active = ctx;
+  ctx.finish = (state, info) => {
+    if (ctx.finished) return; ctx.finished = true;
+    active = null;
+    const dir = ctx.dir;
+    (async () => {
+      if (ctx.closeBrowser) await ctx.closeBrowser();
+      await wait(1500);
+      try { if (ctx.proc && ctx.proc.exitCode === null) ctx.proc.kill(); } catch {}
+      if (dir) { if (state !== 'cancelled') await killByProfile(dir); rmrf(dir); }
+    })();
+    onStatus(state, info);
+  };
+  try {
+    if (browser.kind === 'firefox') await firefoxFlow(browser, url, partition, ctx);
+    else await chromiumFlow(browser, url, partition, ctx);
+  } catch (e) {
+    ctx.finish('error', { message: e.message });
+  }
+}
+
+module.exports = { signInWithBrowser, pickBrowser };

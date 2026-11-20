@@ -496,7 +496,7 @@
       opened: `Sign in with Google in the ${s.browser || 'browser'} window. It closes by itself when you're done.`,
       cancelled: 'Sign-in cancelled.',
       error: `Sign-in didn't finish${s.message ? ': ' + s.message : ''}. Try again.`,
-      fallback: "Couldn't find Chrome, Edge or Brave, so trying sign-in inside Tunewave instead.",
+      fallback: "Couldn't find a supported browser (Firefox, Chrome, Edge, Brave), so trying sign-in inside Tunewave instead.",
     }[s.state];
     if (msg) toastLong(msg);
   });
