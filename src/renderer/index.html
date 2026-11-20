@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'none'; frame-src https://music.youtube.com;" />
+  <title>Tunewave</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app" class="no-track">
+    <!-- ===== Top bar ===== -->
+    <header id="topbar">
+      <div class="tb-left">
+        <div class="logo" title="Tunewave">
+          <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" class="logo-bg"/><path class="logo-wave" d="M7 17.5c2.2 0 2.2-5 4.4-5s2.2 9 4.4 9 2.2-13 4.4-13 2.2 9 4.4 9"/></svg>
+        </div>
+        <button class="icon-btn round" id="btn-back" title="Back (Alt+Left)" data-icon="chevronLeft"></button>
+        <button class="icon-btn round" id="btn-forward" title="Forward (Alt+Right)" data-icon="chevronRight"></button>
+      </div>
+      <div class="tb-center">
+        <button class="icon-btn round big" id="btn-home" title="Home" data-icon="home"></button>
+        <form id="search-form" autocomplete="off">
+          <span class="search-icon" data-icon="search"></span>
+          <input id="search-input" type="text" placeholder="What do you want to play?" spellcheck="false" />
+          <kbd>Ctrl K</kbd>
+        </form>
+      </div>
+      <div class="tb-right">
+        <button class="icon-btn round" id="btn-themes" title="Themes" data-icon="palette"></button>
+        <button class="icon-btn round" id="btn-settings" title="Settings" data-icon="tune"></button>
+        <button class="avatar" id="btn-account" title="Account"><span data-icon="person"></span></button>
+      </div>
+    </header>
+
+    <!-- ===== Sidebar ===== -->
+    <aside id="sidebar">
+      <nav class="card nav-card">
+        <button class="nav-item" data-nav="home"><span data-icon="home"></span><span>Home</span></button>
+        <button class="nav-item" data-nav="explore"><span data-icon="explore"></span><span>Explore</span></button>
+        <button class="nav-item" data-nav="search-focus"><span data-icon="search"></span><span>Search</span></button>
+      </nav>
+      <section class="card library-card">
+        <div class="lib-head">
+          <button class="lib-title" data-nav="library"><span data-icon="library"></span><span>Your Library</span></button>
+          <button class="icon-btn small" id="btn-refresh-lib" title="Refresh playlists" data-icon="refresh"></button>
+        </div>
+        <div class="chips">
+          <button class="chip" data-nav="lib-playlists">Playlists</button>
+          <button class="chip" data-nav="lib-songs">Songs</button>
+          <button class="chip" data-nav="lib-albums">Albums</button>
+          <button class="chip" data-nav="lib-artists">Artists</button>
+        </div>
+        <div id="lib-filter-wrap"><span data-icon="search"></span><input id="lib-filter" placeholder="Search in Your Library" spellcheck="false" /></div>
+        <div id="playlist-list" class="scroll"></div>
+      </section>
+    </aside>
+
+    <!-- ===== Main (YouTube Music) ===== -->
+    <main id="main" class="card">
+      <webview id="ytm" src="https://music.youtube.com/" partition="persist:ytm" webpreferences="contextIsolation=yes, sandbox=yes"></webview>
+      <div id="loader"><div class="spinner"></div><p>Loading YouTube Music…</p></div>
+      <div id="login-banner" hidden>
+        <span>You're signing in to YouTube Music. Your Premium account works here exactly as in the browser.</span>
+        <button id="btn-cancel-login" class="pill ghost">Back to music</button>
+      </div>
+    </main>
+
+    <!-- ===== Now playing panel ===== -->
+    <aside id="nowplaying" class="card">
+      <div class="np-head">
+        <span class="np-label">Now playing</span>
+        <button class="icon-btn small" id="btn-np-close" title="Hide" data-icon="close"></button>
+      </div>
+      <div class="np-body scroll">
+        <div class="np-art-wrap"><img id="np-art" alt="" /><div class="np-art-ph" data-icon="note"></div></div>
+        <div class="np-meta">
+          <div class="np-text">
+            <div id="np-title" class="np-title">Nothing playing</div>
+            <div id="np-artist" class="np-artist">Pick something to listen to</div>
+          </div>
+          <button class="icon-btn like-btn" id="np-like" title="Like" data-icon="heartOutline"></button>
+        </div>
+        <div class="np-section">
+          <div class="np-section-head"><span>Next in queue</span><button class="link-btn" id="btn-open-queue">Open full player</button></div>
+          <div id="np-queue"></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ===== Player bar ===== -->
+    <footer id="player">
+      <div class="pl-left">
+        <div class="pl-art-wrap" id="pl-art-wrap" title="Open full player"><img id="pl-art" alt="" /><div class="pl-art-ph" data-icon="note"></div></div>
+        <div class="pl-text">
+          <div id="pl-title" class="pl-title"></div>
+          <div id="pl-artist" class="pl-artist"></div>
+        </div>
+        <button class="icon-btn like-btn" id="pl-like" title="Like" data-icon="heartOutline"></button>
+      </div>
+      <div class="pl-center">
+        <div class="pl-controls">
+          <button class="icon-btn" id="btn-shuffle" title="Shuffle queue" data-icon="shuffle"></button>
+          <button class="icon-btn" id="btn-prev" title="Previous" data-icon="prev"></button>
+          <button class="play-btn" id="btn-play" title="Play (Space)" data-icon="play"></button>
+          <button class="icon-btn" id="btn-next" title="Next" data-icon="next"></button>
+          <button class="icon-btn" id="btn-repeat" title="Repeat" data-icon="repeat"></button>
+        </div>
+        <div class="pl-progress">
+          <span id="t-cur" class="time">0:00</span>
+          <div class="slider" id="progress"><div class="track"><div class="fill"></div></div><div class="knob"></div></div>
+          <span id="t-dur" class="time">0:00</span>
+        </div>
+      </div>
+      <div class="pl-right">
+        <button class="icon-btn" id="btn-fullplayer" title="Full player & lyrics" data-icon="openFull"></button>
+        <button class="icon-btn" id="btn-np" title="Now playing view" data-icon="panel"></button>
+        <button class="icon-btn" id="btn-mute" title="Mute (M)" data-icon="volUp"></button>
+        <div class="slider vol" id="volume"><div class="track"><div class="fill"></div></div><div class="knob"></div></div>
+      </div>
+    </footer>
+  </div>
+
+  <!-- ===== Theme / settings modal ===== -->
+  <div id="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <div class="tabs">
+          <button class="tab active" data-tab="themes">Themes</button>
+          <button class="tab" data-tab="settings">Settings</button>
+          <button class="tab" data-tab="account">Account</button>
+        </div>
+        <button class="icon-btn small" id="btn-modal-close" data-icon="close" title="Close"></button>
+      </div>
+      <div class="modal-body scroll">
+        <section data-panel="themes">
+          <div id="theme-grid"></div>
+          <div class="setting-row">
+            <div><div class="s-title">Custom accent colour</div><div class="s-sub">Override the theme's highlight colour.</div></div>
+            <div class="row-gap"><input type="color" id="accent-picker" /><button class="pill ghost" id="btn-accent-reset">Reset</button></div>
+          </div>
+          <div class="setting-row">
+            <div><div class="s-title">Colours from album art</div><div class="s-sub">Tint the player and Now Playing view with the current cover's colours.</div></div>
+            <label class="switch"><input type="checkbox" id="opt-dynamic" /><span></span></label>
+          </div>
+          <div class="setting-row">
+            <div><div class="s-title">Use album colour as accent</div><div class="s-sub">Buttons and progress bar follow the cover too.</div></div>
+            <label class="switch"><input type="checkbox" id="opt-dynamic-accent" /><span></span></label>
+          </div>
+        </section>
+        <section data-panel="settings" hidden>
+          <div class="setting-row">
+            <div><div class="s-title">Stay in the list when a song starts</div><div class="s-sub">YouTube Music normally jumps to a full-screen player when you press play. Keep it off, like Spotify.</div></div>
+            <label class="switch"><input type="checkbox" id="opt-autoclose" /><span></span></label>
+          </div>
+          <div class="setting-row">
+            <div><div class="s-title">Show Now Playing panel</div><div class="s-sub">Right-hand panel with cover art and queue.</div></div>
+            <label class="switch"><input type="checkbox" id="opt-np" /><span></span></label>
+          </div>
+          <div class="setting-row">
+            <div><div class="s-title">Compact sidebar</div><div class="s-sub">Icons only, more room for music.</div></div>
+            <label class="switch"><input type="checkbox" id="opt-compact" /><span></span></label>
+          </div>
+          <div class="setting-row">
+            <div><div class="s-title">Show original YouTube Music controls</div><div class="s-sub">Fallback if YouTube changes its page and something stops working.</div></div>
+            <label class="switch"><input type="checkbox" id="opt-original" /><span></span></label>
+          </div>
+          <div class="shortcuts">
+            <div class="s-title">Keyboard shortcuts</div>
+            <div class="kb"><kbd>Space</kbd> Play / pause</div>
+            <div class="kb"><kbd>Ctrl</kbd>+<kbd>→</kbd> / <kbd>←</kbd> Next / previous</div>
+            <div class="kb"><kbd>Ctrl</kbd>+<kbd>↑</kbd> / <kbd>↓</kbd> Volume</div>
+            <div class="kb"><kbd>M</kbd> Mute</div>
+            <div class="kb"><kbd>Ctrl</kbd>+<kbd>K</kbd> Search</div>
+            <div class="kb"><kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>→</kbd> Back / forward</div>
+            <div class="kb"><kbd>Ctrl</kbd>+<kbd>R</kbd> Reload YouTube Music</div>
+          </div>
+        </section>
+        <section data-panel="account" hidden>
+          <p class="s-sub" id="account-status">Checking…</p>
+          <div class="row-gap wrap">
+            <button class="pill" id="btn-signin">Sign in to YouTube Music</button>
+            <button class="pill ghost" id="btn-signout">Sign out &amp; clear data</button>
+            <button class="pill ghost" id="btn-reload">Reload YouTube Music</button>
+          </div>
+          <p class="s-sub small">Sign-in happens on Google's own page in a separate window that shows which site it's on. Tunewave never sees your password. Your login is stored only on this computer.</p>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" hidden></div>
+
+  <script src="themes.js"></script>
+  <script src="icons.js"></script>
+  <script src="ytm-bridge.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

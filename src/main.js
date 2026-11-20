@@ -1,0 +1,273 @@
+// Tunewave — main process
+// A Spotify-style desktop shell around YouTube Music (uses your own YouTube Music / Premium login).
+
+const { app, BrowserWindow, ipcMain, session, shell, nativeImage, net, Menu } = require('electron');
+const path = require('path');
+const fs = require('fs');
+
+const YTM_ORIGIN = 'https://music.youtube.com';
+const PARTITION = 'persist:ytm';
+
+// Present ourselves as a normal desktop Chrome so Google sign-in works inside the app.
+const CHROME_UA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`;
+app.userAgentFallback = CHROME_UA;
+
+// Hosts that may load inside the in-app YouTube Music view (sign-in + consent flow).
+const ALLOWED_IN_APP = [
+  /^music\.youtube\.com$/,
+  /^(www\.|m\.)?youtube\.com$/,
+  /^accounts\.google\.[a-z.]+$/,
+  /^accounts\.youtube\.com$/,
+  /^consent\.youtube\.com$/,
+  /^consent\.google\.com$/,
+  /^myaccount\.google\.com$/,
+  /^(www\.)?google\.[a-z.]+$/,
+  /^gds\.google\.com$/,
+];
+const isAllowedInApp = (url) => {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && ALLOWED_IN_APP.some((re) => re.test(u.hostname));
+  } catch { return false; }
+};
+
+let win = null;
+let lastNowPlaying = { playing: false, hasTrack: false };
+
+// ---- single instance ----
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
+  });
+}
+
+// ---- window state (size/position) ----
+const statePath = () => path.join(app.getPath('userData'), 'window-state.json');
+function loadWindowState() {
+  try { return JSON.parse(fs.readFileSync(statePath(), 'utf8')); } catch { return { width: 1380, height: 860 }; }
+}
+function saveWindowState() {
+  if (!win || win.isDestroyed()) return;
+  const b = win.getNormalBounds();
+  try { fs.writeFileSync(statePath(), JSON.stringify({ ...b, maximized: win.isMaximized() })); } catch {}
+}
+
+const icon = (name) => nativeImage.createFromPath(path.join(__dirname, 'assets', name));
+
+function createWindow() {
+  const st = loadWindowState();
+  const isWin = process.platform === 'win32';
+  const isMac = process.platform === 'darwin';
+
+  win = new BrowserWindow({
+    x: st.x, y: st.y, width: st.width || 1380, height: st.height || 860,
+    minWidth: 900, minHeight: 600,
+    backgroundColor: '#000000',
+    title: 'Tunewave',
+    icon: path.join(__dirname, 'assets', 'icon.png'),
+    show: false,
+    titleBarStyle: isWin || isMac ? 'hidden' : 'default',
+    titleBarOverlay: isWin ? { color: '#000000', symbolColor: '#ffffff', height: 56 } : undefined,
+    trafficLightPosition: isMac ? { x: 16, y: 20 } : undefined,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webviewTag: true,
+    },
+  });
+  if (st.maximized) win.maximize();
+  Menu.setApplicationMenu(null);
+
+  win.once('ready-to-show', () => win.show());
+  win.on('close', saveWindowState);
+  win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  // Lock down the <webview>: only YouTube Music, no node, no custom preload.
+  win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+    if (!params.src.startsWith(YTM_ORIGIN)) event.preventDefault();
+  });
+
+  win.webContents.on('did-attach-webview', (_e, wc) => {
+    wc.setUserAgent(CHROME_UA);
+    // Popups: sign-in style flows stay in-app, everything else opens in the default browser.
+    wc.setWindowOpenHandler(({ url }) => {
+      if (isAllowedInApp(url)) { wc.loadURL(url); }
+      else if (/^https?:/.test(url)) { shell.openExternal(url); }
+      return { action: 'deny' };
+    });
+    // Forward app shortcuts even while YouTube Music has keyboard focus.
+    wc.on('before-input-event', (e, input) => {
+      if (input.type !== 'keyDown' || !win) return;
+      const ctrl = input.control || input.meta;
+      const k = input.key.toLowerCase();
+      let name = null;
+      if (ctrl && (k === 'k' || k === 'l')) name = 'search';
+      else if (ctrl && k === 'r') name = 'reload';
+      else if (input.alt && k === 'arrowleft') name = 'back';
+      else if (input.alt && k === 'arrowright') name = 'forward';
+      else if (ctrl && k === 'arrowright') name = 'next';
+      else if (ctrl && k === 'arrowleft') name = 'prev';
+      else if (ctrl && k === 'arrowup') name = 'volUp';
+      else if (ctrl && k === 'arrowdown') name = 'volDown';
+      if (name) { e.preventDefault(); win.webContents.send('shortcut', name); }
+    });
+    wc.on('will-navigate', (e, url) => {
+      if (!isAllowedInApp(url)) { e.preventDefault(); if (/^https?:/.test(url)) shell.openExternal(url); }
+    });
+  });
+
+  // The shell page itself never navigates anywhere.
+  win.webContents.on('will-navigate', (e) => e.preventDefault());
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  updateThumbar();
+}
+
+// ---- Windows taskbar thumbnail buttons (prev / play-pause / next) ----
+function updateThumbar() {
+  if (process.platform !== 'win32' || !win) return;
+  const send = (cmd) => () => win && win.webContents.send('player-command', cmd);
+  const hasTrack = !!lastNowPlaying.hasTrack;
+  try {
+    win.setThumbarButtons([
+      { tooltip: 'Previous', icon: icon('thumb-prev.png'), click: send('prev'), flags: hasTrack ? [] : ['disabled'] },
+      lastNowPlaying.playing
+        ? { tooltip: 'Pause', icon: icon('thumb-pause.png'), click: send('playPause'), flags: hasTrack ? [] : ['disabled'] }
+        : { tooltip: 'Play', icon: icon('thumb-play.png'), click: send('playPause'), flags: hasTrack ? [] : ['disabled'] },
+      { tooltip: 'Next', icon: icon('thumb-next.png'), click: send('next'), flags: hasTrack ? [] : ['disabled'] },
+    ]);
+  } catch {}
+}
+
+// ---- IPC from the shell renderer ----
+ipcMain.on('titlebar-colors', (_e, { color, symbolColor }) => {
+  if (process.platform === 'win32' && win) {
+    try { win.setTitleBarOverlay({ color, symbolColor, height: 56 }); } catch {}
+  }
+});
+
+ipcMain.on('now-playing', (_e, np) => {
+  const changed = np.playing !== lastNowPlaying.playing || np.hasTrack !== lastNowPlaying.hasTrack;
+  lastNowPlaying = np;
+  if (win) win.setTitle(np.hasTrack && np.title ? `${np.title} · ${np.artist || ''} — Tunewave` : 'Tunewave');
+  if (changed) updateThumbar();
+});
+
+// ---- Sign-in window ----
+// Google sign-in opens in its own small window (sharing the app's login storage).
+// It closes by itself once Google sends you back to YouTube Music.
+let signInWin = null;
+const DEFAULT_SIGNIN = 'https://accounts.google.com/ServiceLogin?ltmpl=music&service=youtube&passive=true&continue=' +
+  encodeURIComponent('https://www.youtube.com/signin?action_handle_signin=true&next=' + encodeURIComponent(YTM_ORIGIN + '/'));
+
+ipcMain.on('open-signin', (_e, url) => {
+  if (signInWin && !signInWin.isDestroyed()) { signInWin.focus(); return; }
+  const start = typeof url === 'string' && isAllowedInApp(url) ? url : DEFAULT_SIGNIN;
+  signInWin = new BrowserWindow({
+    width: 500, height: 720, parent: win, modal: false, resizable: true,
+    title: 'Sign in with Google', backgroundColor: '#ffffff', autoHideMenuBar: true,
+    icon: path.join(__dirname, 'assets', 'icon.png'),
+    webPreferences: { partition: PARTITION, contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  const wc = signInWin.webContents;
+  wc.setUserAgent(CHROME_UA);
+  // Always show which site you're on, so you can check it's really Google.
+  const showHost = () => {
+    try { signInWin.setTitle(`Sign in with Google — ${new URL(wc.getURL()).hostname}`); } catch {}
+  };
+  wc.on('page-title-updated', (e) => { e.preventDefault(); showHost(); });
+  wc.on('did-navigate', (_ev, navUrl) => {
+    showHost();
+    try {
+      if (new URL(navUrl).hostname === 'music.youtube.com') {
+        // Signed in: Google has redirected back to YouTube Music.
+        signInWin.close();
+        if (win) win.webContents.send('signed-in');
+      }
+    } catch {}
+  });
+  wc.on('will-navigate', (ev, navUrl) => {
+    if (!isAllowedInApp(navUrl)) { ev.preventDefault(); if (/^https?:/.test(navUrl)) shell.openExternal(navUrl); }
+  });
+  wc.setWindowOpenHandler(({ url: u }) => {
+    if (isAllowedInApp(u)) wc.loadURL(u); else if (/^https?:/.test(u)) shell.openExternal(u);
+    return { action: 'deny' };
+  });
+  signInWin.on('closed', () => { signInWin = null; });
+  signInWin.loadURL(start);
+});
+
+ipcMain.on('open-external', (_e, url) => {
+  if (typeof url === 'string' && /^https:\/\//.test(url)) shell.openExternal(url);
+});
+
+ipcMain.handle('clear-session', async () => {
+  await session.fromPartition(PARTITION).clearStorageData();
+  return true;
+});
+
+// Pull a vivid colour out of album art (done here to avoid cross-origin canvas limits).
+const colorCache = new Map();
+ipcMain.handle('artwork-color', async (_e, url) => {
+  if (typeof url !== 'string' || !/^https:\/\/([a-z0-9-]+\.)*(googleusercontent|ytimg|ggpht)\.com\//.test(url)) return null;
+  if (colorCache.has(url)) return colorCache.get(url);
+  try {
+    const res = await net.fetch(url);
+    const buf = Buffer.from(await res.arrayBuffer());
+    const img = nativeImage.createFromBuffer(buf).resize({ width: 24, height: 24, quality: 'good' });
+    const bmp = img.toBitmap(); // BGRA
+    let best = null; let r = 0, g = 0, b = 0, n = 0;
+    for (let i = 0; i < bmp.length; i += 4) {
+      const B = bmp[i], G = bmp[i + 1], R = bmp[i + 2];
+      const max = Math.max(R, G, B), min = Math.min(R, G, B);
+      const sat = max === 0 ? 0 : (max - min) / max;
+      const lum = (max + min) / 510;
+      const score = sat * (1 - Math.abs(lum - 0.55) * 1.4);
+      r += R; g += G; b += B; n++;
+      if (!best || score > best.score) best = { score, R, G, B };
+    }
+    let out;
+    if (best && best.score > 0.18) out = [best.R, best.G, best.B];
+    else out = [Math.round(r / n), Math.round(g / n), Math.round(b / n)];
+    const hex = '#' + out.map((v) => v.toString(16).padStart(2, '0')).join('');
+    colorCache.set(url, hex);
+    if (colorCache.size > 200) colorCache.delete(colorCache.keys().next().value);
+    return hex;
+  } catch { return null; }
+});
+
+app.whenReady().then(() => {
+  const ytm = session.fromPartition(PARTITION);
+  ytm.setUserAgent(CHROME_UA);
+  // Drop the "Electron" brand from client hints so Google treats this like Chrome.
+  ytm.webRequest.onBeforeSendHeaders((details, cb) => {
+    const h = details.requestHeaders;
+    for (const k of Object.keys(h)) {
+      if (/^sec-ch-ua(-full-version-list)?$/i.test(k)) {
+        h[k] = h[k].replace(/,?\s*"Electron";v="[^"]*"/g, '');
+      }
+    }
+    h['User-Agent'] = CHROME_UA;
+    cb({ requestHeaders: h });
+  });
+  // No permission prompts needed beyond media playback / fullscreen / notifications.
+  ytm.setPermissionRequestHandler((_wc, permission, cb) => {
+    cb(['media', 'fullscreen', 'notifications', 'clipboard-sanitized-write'].includes(permission));
+  });
+
+  createWindow();
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+});
+
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
