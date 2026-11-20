@@ -2,7 +2,10 @@ name: Build & release
 
 # Every push to main builds the Windows app.
 # If package.json has a version that hasn't been released yet, a GitHub Release
-# "vX.Y.Z" is created with the installer and the portable zip attached.
+# "vX.Y.Z" is created with the portable zip attached.
+# (The installer is shelved for now: Windows Smart App Control blocks unsigned
+#  installers. To bring it back, add the "nsis" target in package.json and the
+#  Setup/blockmap/latest.yml files below.)
 # To publish an update: bump "version" in package.json and push.
 
 on:
@@ -44,7 +47,7 @@ jobs:
 
       - run: npm ci
 
-      - name: Build installer + portable zip
+      - name: Build portable zip
         run: npx electron-builder --win --x64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -53,9 +56,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Tunewave-${{ steps.ver.outputs.version }}-windows
-          path: |
-            dist/Tunewave-Setup-*.exe
-            dist/Tunewave-Portable-*.zip
+          path: dist/Tunewave-Portable-*.zip
 
       - name: Publish GitHub Release
         if: steps.ver.outputs.new == 'true'
@@ -66,14 +67,9 @@ jobs:
           generate_release_notes: true
           body: |
             ## Download for Windows
-            - **Installer:** `Tunewave-Setup-${{ steps.ver.outputs.version }}.exe` installs Tunewave with Start menu and desktop shortcuts.
-            - **Portable:** `Tunewave-Portable-${{ steps.ver.outputs.version }}-Windows.zip` needs no install. Unzip it and run `Tunewave.exe`.
+            **`Tunewave-Portable-${{ steps.ver.outputs.version }}-Windows.zip`**: unzip it and run `Tunewave.exe`. No install needed.
 
-            The installed version updates itself automatically from now on. The portable version tells you when a new release is out.
+            Tunewave tells you when a new version is out (Update button at the top right).
 
             Windows may show "Windows protected your PC" because the app isn't code-signed. Click **More info → Run anyway**.
-          files: |
-            dist/Tunewave-Setup-*.exe
-            dist/Tunewave-Setup-*.exe.blockmap
-            dist/Tunewave-Portable-*.zip
-            dist/latest.yml
+          files: dist/Tunewave-Portable-*.zip

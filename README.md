@@ -10,7 +10,7 @@ A Spotify-style desktop player for **YouTube Music**. Sign in with your own YouT
 
 ## Run it (Windows)
 
-Download from the [Releases](../../releases) page: `Tunewave-Setup-X.Y.Z.exe` (installer) or `Tunewave-Portable-X.Y.Z-Windows.zip` (portable). For the portable version:
+Download `Tunewave-Portable-X.Y.Z-Windows.zip` from the [Releases](../../releases) page. Then:
 
 1. Unzip it somewhere permanent, e.g. `C:\Users\<you>\Apps\Tunewave`.
 2. Double-click **Tunewave.exe**. To pin it, right-click the running icon in the taskbar and choose **Pin to taskbar**.
@@ -34,14 +34,13 @@ YouTube sometimes changes its website. If a button stops working, open **Setting
 
 ## Making a release
 
-Releases are automatic. Every push to `main` builds the Windows app with GitHub Actions. When the `version` in `package.json` hasn't been released yet, a new GitHub Release (`vX.Y.Z`) is created with two downloads:
+Releases are automatic. Every push to `main` builds the Windows app with GitHub Actions. When the `version` in `package.json` hasn't been released yet, a new GitHub Release (`vX.Y.Z`) is created with the portable zip, `Tunewave-Portable-X.Y.Z-Windows.zip`.
 
-- `Tunewave-Setup-X.Y.Z.exe`: the installer
-- `Tunewave-Portable-X.Y.Z-Windows.zip`: the portable version (no install)
+Tunewave checks GitHub for new releases when it starts and every few hours, and shows an **Update available** button that opens the download page.
 
-The installed version checks GitHub for updates when it starts and every few hours. It downloads them in the background and shows a **Restart to update** button. The portable version can't replace itself, so it shows an **Update available** button that opens the download page instead.
+To publish an update, bump `version` in `package.json` (e.g. `1.3.0` → `1.3.1`) and push.
 
-To publish an update, bump `version` in `package.json` (e.g. `1.0.0` → `1.0.1`) and push.
+*The Windows installer is shelved for now, because Windows 11 Smart App Control blocks unsigned installers. The installer and its self-updating code are still in the project, ready for when the app is code-signed.*
 
 ## Build from source
 
