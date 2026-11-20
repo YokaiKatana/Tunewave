@@ -240,3 +240,10 @@ section[data-panel="account"] .row-gap { margin-top: 12px; }
 /* Narrow windows */
 @media (max-width: 1180px) { #app:not(.np-hidden) { --np-w: 280px; } }
 @media (max-width: 1050px) { #app { --sidebar-w: 76px; } #app .nav-item span:last-child, #app .lib-title span:last-child, #app .chips, #app #lib-filter-wrap, #app .pl-info, #app #btn-refresh-lib, #app .lib-empty { display: none; } #app .nav-item, #app .pl-item { justify-content: center; padding-left: 0; padding-right: 0; } #app .lib-head { justify-content: center; padding: 14px 0 8px; } kbd { display: none; } }
+
+/* Update pill */
+.update-pill { -webkit-app-region: no-drag; background: var(--accent); color: var(--on-accent); font-size: 13px; font-weight: 700; padding: 7px 14px; border-radius: 999px; white-space: nowrap; transition: transform .1s, filter .15s; }
+.update-pill:hover { transform: scale(1.04); filter: brightness(1.08); }
+.update-pill.busy { background: var(--elevated); color: var(--subtext); cursor: default; }
+.update-pill.busy:hover { transform: none; filter: none; }
+.about-row { margin-top: 18px; }

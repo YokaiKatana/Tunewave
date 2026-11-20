@@ -26,6 +26,7 @@
         </form>
       </div>
       <div class="tb-right">
+        <button class="update-pill" id="btn-update" hidden></button>
         <button class="icon-btn round" id="btn-themes" title="Themes" data-icon="palette"></button>
         <button class="icon-btn round" id="btn-settings" title="Settings" data-icon="tune"></button>
         <button class="avatar" id="btn-account" title="Account"><span data-icon="person"></span></button>
@@ -182,6 +183,10 @@
             <button class="pill" id="btn-signin">Sign in to YouTube Music</button>
             <button class="pill ghost" id="btn-signout">Sign out &amp; clear data</button>
             <button class="pill ghost" id="btn-reload">Reload YouTube Music</button>
+          </div>
+          <div class="setting-row about-row">
+            <div><div class="s-title">Tunewave <span id="app-version"></span></div><div class="s-sub" id="update-status-text">Updates are checked automatically.</div></div>
+            <button class="pill ghost" id="btn-check-update">Check for updates</button>
           </div>
           <p class="s-sub small">Sign-in happens on Google's own page in a separate window that shows which site it's on. Tunewave never sees your password. Your login is stored only on this computer.</p>
         </section>

@@ -208,6 +208,73 @@ ipcMain.on('open-signin', (_e, url) => {
   signInWin.loadURL(start);
 });
 
+// ---- Updates ----
+// Installed version: downloads updates in the background from GitHub Releases and installs on restart.
+// Portable version (can't replace itself): tells you a new version is out and links to the download.
+const RELEASES_API = 'https://api.github.com/repos/YokaiKatana/Tunewave/releases/latest';
+const RELEASES_PAGE = 'https://github.com/YokaiKatana/Tunewave/releases/latest';
+let updater = null;
+let updateState = { state: 'idle', current: app.getVersion() };
+const sendUpdate = (patch) => {
+  updateState = { ...updateState, ...patch };
+  if (win && !win.isDestroyed()) win.webContents.send('update-status', updateState);
+};
+const newer = (a, b) => { // is a > b ?
+  const pa = String(a).replace(/^v/, '').split(/[.-]/).map((x) => parseInt(x, 10) || 0);
+  const pb = String(b).replace(/^v/, '').split(/[.-]/).map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0); }
+  return false;
+};
+
+async function checkPortable(manual) {
+  try {
+    const res = await net.fetch(RELEASES_API, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Tunewave' } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const rel = await res.json();
+    if (newer(rel.tag_name, app.getVersion())) sendUpdate({ state: 'available-portable', version: rel.tag_name.replace(/^v/, ''), url: rel.html_url || RELEASES_PAGE });
+    else sendUpdate({ state: manual ? 'latest' : 'idle' });
+  } catch (e) {
+    sendUpdate({ state: manual ? 'error' : 'idle', error: String(e.message || e) });
+  }
+}
+
+function checkForUpdates(manual = false) {
+  if (!app.isPackaged) { if (manual) sendUpdate({ state: 'dev' }); return; }
+  if (updater) {
+    sendUpdate({ state: 'checking' });
+    updater.checkForUpdates().catch((e) => sendUpdate({ state: manual ? 'error' : 'idle', error: String(e.message || e) }));
+  } else {
+    checkPortable(manual);
+  }
+}
+
+function setupUpdates() {
+  if (!app.isPackaged) return;
+  try {
+    const { autoUpdater } = require('electron-updater');
+    if (autoUpdater.isUpdaterActive()) {
+      updater = autoUpdater;
+      autoUpdater.autoDownload = true;
+      autoUpdater.autoInstallOnAppQuit = true;
+      autoUpdater.on('update-available', (info) => sendUpdate({ state: 'downloading', version: info.version, percent: 0 }));
+      autoUpdater.on('download-progress', (p) => sendUpdate({ state: 'downloading', percent: Math.round(p.percent || 0) }));
+      autoUpdater.on('update-downloaded', (info) => sendUpdate({ state: 'ready', version: info.version }));
+      autoUpdater.on('update-not-available', () => sendUpdate({ state: updateState.state === 'checking' ? 'latest' : 'idle' }));
+      autoUpdater.on('error', (e) => sendUpdate({ state: 'error', error: String((e && e.message) || e) }));
+    }
+  } catch { updater = null; }
+  setTimeout(() => checkForUpdates(false), 8000);
+  setInterval(() => checkForUpdates(false), 4 * 60 * 60 * 1000);
+}
+
+ipcMain.handle('update-get', () => updateState);
+ipcMain.on('update-check', () => checkForUpdates(true));
+ipcMain.on('update-install', () => {
+  if (updater && updateState.state === 'ready') { setImmediate(() => updater.quitAndInstall(false, true)); }
+  else if (updateState.url) shell.openExternal(updateState.url);
+  else shell.openExternal(RELEASES_PAGE);
+});
+
 ipcMain.on('open-external', (_e, url) => {
   if (typeof url === 'string' && /^https:\/\//.test(url)) shell.openExternal(url);
 });
@@ -267,6 +334,7 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+  setupUpdates();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 

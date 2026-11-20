@@ -46,6 +46,8 @@ jobs:
 
       - name: Build installer + portable zip
         run: npx electron-builder --win --x64 --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload build files (on the Actions run page)
         uses: actions/upload-artifact@v4
@@ -67,7 +69,11 @@ jobs:
             - **Installer:** `Tunewave-Setup-${{ steps.ver.outputs.version }}.exe` installs Tunewave with Start menu and desktop shortcuts.
             - **Portable:** `Tunewave-Portable-${{ steps.ver.outputs.version }}-Windows.zip` needs no install. Unzip it and run `Tunewave.exe`.
 
+            The installed version updates itself automatically from now on. The portable version tells you when a new release is out.
+
             Windows may show "Windows protected your PC" because the app isn't code-signed. Click **More info → Run anyway**.
           files: |
             dist/Tunewave-Setup-*.exe
+            dist/Tunewave-Setup-*.exe.blockmap
             dist/Tunewave-Portable-*.zip
+            dist/latest.yml

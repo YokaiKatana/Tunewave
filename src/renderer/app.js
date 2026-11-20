@@ -432,6 +432,8 @@
       case 'pl-art-wrap': case 'btn-fullplayer': case 'btn-open-queue':
         lastPlayerToggle = Date.now(); userWantsPlayer = !state.playerPageOpen; cmd('togglePlayerPage'); break;
       case 'btn-np': case 'btn-np-close': settings.showNP = t.id === 'btn-np' ? !settings.showNP : false; save(); applyLayout(); lastQueueJSON = ''; refreshQueue(); break;
+      case 'btn-update': if (!t.classList.contains('busy')) api.installUpdate && api.installUpdate(); break;
+      case 'btn-check-update': api.checkUpdate && api.checkUpdate(); break;
       case 'btn-refresh-lib': refreshPlaylists(true); break;
       case 'btn-accent-reset': settings.customAccent = ''; save(); applyTheme(); syncSettingsUI(); break;
       case 'btn-signin': signIn(); break;
@@ -485,6 +487,37 @@
   api.onPlayerCommand((c) => cmd(c));
   if (api.onShortcut) api.onShortcut(shortcut);
   if (api.onSignedIn) api.onSignedIn(afterSignIn);
+
+  // ---------- updates ----------
+  function showUpdate(u) {
+    if (!u) return;
+    const pill = $('#btn-update'); const txt = $('#update-status-text');
+    $('#app-version').textContent = u.current ? 'v' + u.current : '';
+    pill.classList.remove('busy');
+    switch (u.state) {
+      case 'downloading':
+        pill.hidden = false; pill.classList.add('busy');
+        pill.textContent = `Downloading update${u.percent ? ' ' + u.percent + '%' : '…'}`;
+        txt.textContent = `Downloading version ${u.version || ''}…`; break;
+      case 'ready':
+        pill.hidden = false; pill.textContent = 'Restart to update';
+        pill.title = `Version ${u.version} is ready. Restart Tunewave to install it.`;
+        txt.textContent = `Version ${u.version} is downloaded. It installs when you restart Tunewave.`; break;
+      case 'available-portable':
+        pill.hidden = false; pill.textContent = `Update ${u.version} available`;
+        pill.title = 'This is the portable version, so download the new one from GitHub.';
+        txt.textContent = `Version ${u.version} is out. The portable version can't update itself, so download the new zip (or switch to the installer to get automatic updates).`; break;
+      case 'checking': txt.textContent = 'Checking for updates…'; break;
+      case 'latest': pill.hidden = true; txt.textContent = "You're on the latest version."; break;
+      case 'error': txt.textContent = "Couldn't check for updates right now. Tunewave will try again later."; break;
+      case 'dev': txt.textContent = 'Update checks only run in the packaged app.'; break;
+      default: break;
+    }
+  }
+  if (api.onUpdate) {
+    api.onUpdate(showUpdate);
+    api.getUpdate().then(showUpdate);
+  }
 
   // ---------- start ----------
   applyLayout();

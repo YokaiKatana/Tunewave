@@ -9,6 +9,10 @@ contextBridge.exposeInMainWorld('tunewave', {
   clearSession: () => ipcRenderer.invoke('clear-session'),
   openSignIn: (url) => ipcRenderer.send('open-signin', url),
   onSignedIn: (fn) => ipcRenderer.on('signed-in', () => fn()),
+  getUpdate: () => ipcRenderer.invoke('update-get'),
+  checkUpdate: () => ipcRenderer.send('update-check'),
+  installUpdate: () => ipcRenderer.send('update-install'),
+  onUpdate: (fn) => ipcRenderer.on('update-status', (_e, s) => fn(s)),
   onShortcut: (fn) => ipcRenderer.on('shortcut', (_e, name) => fn(name)),
   onPlayerCommand: (fn) => ipcRenderer.on('player-command', (_e, cmd) => fn(cmd)),
 });

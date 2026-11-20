@@ -37,6 +37,8 @@ Releases are automatic. Every push to `main` builds the Windows app with GitHub 
 - `Tunewave-Setup-X.Y.Z.exe`: the installer
 - `Tunewave-Portable-X.Y.Z-Windows.zip`: the portable version (no install)
 
+The installed version checks GitHub for updates when it starts and every few hours. It downloads them in the background and shows a **Restart to update** button. The portable version can't replace itself, so it shows an **Update available** button that opens the download page instead.
+
 To publish an update, bump `version` in `package.json` (e.g. `1.0.0` → `1.0.1`) and push.
 
 ## Build from source
