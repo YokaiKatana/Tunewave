@@ -452,4 +452,19 @@ async function signInWithBrowser({ url, partition, onStatus, extraArgs }) {
   }
 }
 
-module.exports = { signInWithBrowser, pickBrowser };
+// Silently refresh the login from the user's browser, without opening any window.
+// Keeps the app's shared session in step with the browser's (which rotates over time),
+// so Google doesn't invalidate it. Only Firefox exposes its cookies unencrypted, so for
+// Chromium browsers this is a no-op (they stay as signed in at import time).
+async function silentResync({ partition }) {
+  let browser; try { browser = await pickBrowser(); } catch { return { ok: false, reason: 'no-browser' }; }
+  if (!browser || browser.kind !== 'firefox') return { ok: false, reason: 'unsupported-browser' };
+  const profile = defaultFirefoxProfile(browser.exe);
+  if (!profile) return { ok: false, reason: 'no-profile' };
+  let cookies = []; try { cookies = readFirefoxCookies(profile); } catch { return { ok: false, reason: 'read-failed' }; }
+  if (!isLoggedIn(cookies)) return { ok: false, reason: 'not-logged-in' };
+  const n = await importCookies(cookies, partition);
+  return { ok: true, count: n };
+}
+
+module.exports = { signInWithBrowser, pickBrowser, silentResync, defaultFirefoxProfile };

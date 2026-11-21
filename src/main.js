@@ -1,7 +1,7 @@
 // Tunewave — main process
 // A Spotify-style desktop shell around YouTube Music (uses your own YouTube Music / Premium login).
 
-const { app, BrowserWindow, ipcMain, session, shell, nativeImage, net, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, session, shell, nativeImage, net, Menu, Tray, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -32,6 +32,10 @@ const isAllowedInApp = (url) => {
 };
 
 let win = null;
+let tray = null;
+let isQuitting = false;
+let trayBehavior = { closeToTray: true, minimizeToTray: false };
+let notifiedTray = false;
 let lastNowPlaying = { playing: false, hasTrack: false };
 
 // ---- single instance ----
@@ -83,7 +87,24 @@ function createWindow() {
   Menu.setApplicationMenu(null);
 
   win.once('ready-to-show', () => win.show());
-  win.on('close', saveWindowState);
+  win.on('close', (e) => {
+    saveWindowState();
+    if (!isQuitting && trayBehavior.closeToTray && tray) {
+      e.preventDefault();
+      win.hide();
+      if (!notifiedTray && process.platform === 'win32') {
+        notifiedTray = true;
+        try { tray.displayBalloon({ title: 'Still playing', content: 'Tunewave is here in the tray. Right-click for controls.' }); } catch {}
+      }
+      updateTrayMenu();
+    }
+  });
+  win.on('minimize', (e) => {
+    if (trayBehavior.minimizeToTray && tray) { e.preventDefault(); win.hide(); updateTrayMenu(); }
+  });
+  win.on('show', () => updateTrayMenu());
+  win.on('hide', () => updateTrayMenu());
+  win.on('focus', () => resyncLogin());
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
   // Lock down the <webview>: only YouTube Music, no node, no custom preload.
@@ -154,7 +175,64 @@ function updateThumbar() {
   } catch {}
 }
 
+// ---- System tray ----
+const sendPlayer = (cmd) => { if (win) win.webContents.send('player-command', cmd); };
+function showWindow() { if (!win) return; win.show(); if (win.isMinimized()) win.restore(); win.focus(); }
+function toggleWindow() { if (!win) return; (win.isVisible() && !win.isMinimized()) ? win.hide() : showWindow(); }
+
+function updateTrayMenu() {
+  if (!tray) return;
+  const np = lastNowPlaying;
+  const nowLine = np.hasTrack && np.title ? `${np.title}${np.artist ? ' — ' + np.artist : ''}` : 'Nothing playing';
+  const visible = win && win.isVisible() && !win.isMinimized();
+  try {
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: nowLine.length > 60 ? nowLine.slice(0, 57) + '…' : nowLine, enabled: false },
+      { type: 'separator' },
+      { label: np.playing ? 'Pause' : 'Play', click: () => sendPlayer('playPause') },
+      { label: 'Previous', click: () => sendPlayer('prev') },
+      { label: 'Next', click: () => sendPlayer('next') },
+      { type: 'separator' },
+      { label: visible ? 'Hide Tunewave' : 'Show Tunewave', click: () => toggleWindow() },
+      { label: 'Quit Tunewave', click: () => { isQuitting = true; app.quit(); } },
+    ]));
+    tray.setToolTip(np.hasTrack && np.title ? `${np.title} — ${np.artist || ''}` : 'Tunewave');
+  } catch {}
+}
+
+function createTray() {
+  if (tray) return;
+  try {
+    let img = icon('tray.png');
+    if (!img || img.isEmpty()) img = icon('icon.png');
+    tray = new Tray(img);
+    tray.setToolTip('Tunewave');
+    tray.on('click', () => { if (process.platform !== 'darwin') toggleWindow(); });
+    tray.on('double-click', () => showWindow());
+    updateTrayMenu();
+  } catch (e) { tray = null; } // some Linux desktops have no tray; fail quietly
+}
+
+// ---- Global media keys (work even when the app isn't focused) ----
+let mediaKeysOn = false;
+function setMediaKeys(enabled) {
+  if (enabled === mediaKeysOn) return;
+  mediaKeysOn = enabled;
+  try {
+    if (enabled) {
+      globalShortcut.register('MediaPlayPause', () => sendPlayer('playPause'));
+      globalShortcut.register('MediaNextTrack', () => sendPlayer('next'));
+      globalShortcut.register('MediaPreviousTrack', () => sendPlayer('prev'));
+    } else {
+      for (const k of ['MediaPlayPause', 'MediaNextTrack', 'MediaPreviousTrack']) globalShortcut.unregister(k);
+    }
+  } catch {}
+}
+
 // ---- IPC from the shell renderer ----
+ipcMain.on('tray-behavior', (_e, b) => { trayBehavior = { ...trayBehavior, ...(b || {}) }; });
+ipcMain.on('media-keys', (_e, enabled) => setMediaKeys(!!enabled));
+
 ipcMain.on('titlebar-colors', (_e, { color, symbolColor }) => {
   if (process.platform === 'win32' && win) {
     try { win.setTitleBarOverlay({ color, symbolColor, height: 56 }); } catch {}
@@ -166,6 +244,7 @@ ipcMain.on('now-playing', (_e, np) => {
   lastNowPlaying = np;
   if (win) win.setTitle(np.hasTrack && np.title ? `${np.title} · ${np.artist || ''} — Tunewave` : 'Tunewave');
   if (changed) updateThumbar();
+  updateTrayMenu();
 });
 
 // ---- Sign-in window ----
@@ -175,7 +254,15 @@ let signInWin = null;
 const DEFAULT_SIGNIN = 'https://accounts.google.com/ServiceLogin?ltmpl=music&service=youtube&passive=true&continue=' +
   encodeURIComponent('https://www.youtube.com/signin?action_handle_signin=true&next=' + encodeURIComponent(YTM_ORIGIN + '/'));
 
-const { signInWithBrowser } = require('./browser-signin');
+const { signInWithBrowser, silentResync } = require('./browser-signin');
+
+// Keep the app's borrowed login in step with the browser so Google doesn't sign it out.
+let lastResync = 0;
+async function resyncLogin(force) {
+  if (!force && Date.now() - lastResync < 45000) return;
+  lastResync = Date.now();
+  try { await silentResync({ partition: PARTITION }); } catch {}
+}
 const sendSignin = (state, info = {}) => { if (win && !win.isDestroyed()) win.webContents.send('signin-status', { state, ...info }); };
 
 // A Google sign-in / account page (which Google blocks inside the app).
@@ -367,8 +454,14 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+  createTray();
+  setMediaKeys(true);
   setupUpdates();
+  setTimeout(() => resyncLogin(true), 20000);
+  setInterval(() => resyncLogin(true), 10 * 60 * 1000);
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
+app.on('before-quit', () => { isQuitting = true; });
+app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch {} });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

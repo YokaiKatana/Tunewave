@@ -12,7 +12,7 @@
   const app = $('#app');
 
   // ---------- settings ----------
-  const DEFAULTS = { theme: 'classic', customAccent: '', dynamic: true, dynamicAccent: false, autoClose: true, showNP: true, compact: false, original: false, volume: 100 };
+  const DEFAULTS = { theme: 'classic', customAccent: '', dynamic: true, dynamicAccent: false, autoClose: true, showNP: true, compact: false, original: false, volume: 100, closeToTray: true, minimizeToTray: false, mediaKeys: true };
   const settings = (() => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('tw-settings') || '{}') }; } catch { return { ...DEFAULTS }; } })();
   const save = () => { try { localStorage.setItem('tw-settings', JSON.stringify(settings)); } catch {} };
 
@@ -362,6 +362,9 @@
     $('#opt-np').checked = settings.showNP;
     $('#opt-compact').checked = settings.compact;
     $('#opt-original').checked = settings.original;
+    $('#opt-close-tray').checked = settings.closeToTray;
+    $('#opt-min-tray').checked = settings.minimizeToTray;
+    $('#opt-media-keys').checked = settings.mediaKeys;
   }
 
   // ---------- account ----------
@@ -457,6 +460,10 @@
   bindOpt('#opt-np', 'showNP', () => { applyLayout(); lastQueueJSON = ''; refreshQueue(); });
   bindOpt('#opt-compact', 'compact', applyLayout);
   bindOpt('#opt-original', 'original', injectYtmCss);
+  const pushTray = () => api.setTrayBehavior && api.setTrayBehavior({ closeToTray: settings.closeToTray, minimizeToTray: settings.minimizeToTray });
+  bindOpt('#opt-close-tray', 'closeToTray', pushTray);
+  bindOpt('#opt-min-tray', 'minimizeToTray', pushTray);
+  bindOpt('#opt-media-keys', 'mediaKeys', () => api.setMediaKeys && api.setMediaKeys(settings.mediaKeys));
 
   function shortcut(name) {
     switch (name) {
@@ -547,6 +554,8 @@
   }
 
   // ---------- start ----------
+  if (api.setTrayBehavior) api.setTrayBehavior({ closeToTray: settings.closeToTray, minimizeToTray: settings.minimizeToTray });
+  if (api.setMediaKeys) api.setMediaKeys(settings.mediaKeys);
   applyLayout();
   applyTheme();
   renderPlaylists();

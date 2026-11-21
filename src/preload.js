@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('tunewave', {
   openExternal: (url) => ipcRenderer.send('open-external', url),
   artworkColor: (url) => ipcRenderer.invoke('artwork-color', url),
   clearSession: () => ipcRenderer.invoke('clear-session'),
+  setMediaKeys: (b) => ipcRenderer.send('media-keys', b),
+  setTrayBehavior: (b) => ipcRenderer.send('tray-behavior', b),
   openSignIn: (url) => ipcRenderer.send('open-signin', url),
   onSigninStatus: (fn) => ipcRenderer.on('signin-status', (_e, s) => fn(s)),
   onSignedIn: (fn) => ipcRenderer.on('signed-in', () => fn()),

@@ -23,6 +23,11 @@ window.YTM = (() => {
     }
     ytmusic-player-page { padding-top: 24px !important; }
     ytmusic-app-layout[player-page-open] ytmusic-player-page { padding-bottom: 0 !important; }
+    /* In the full player, the page still scrolls behind the overlay, showing a second,
+       dead scrollbar. Disable document scroll while the player page is open; the queue
+       (#tab-renderer) keeps its own scrollbar. */
+    html:has(ytmusic-app-layout[player-page-open]),
+    body:has(ytmusic-app-layout[player-page-open]) { overflow: hidden !important; }
   `;
 
   function themeCSS(t, accent) {
@@ -167,13 +172,20 @@ window.YTM = (() => {
       app.dispatchEvent(new CustomEvent('yt-navigate', { bubbles: true, composed: true, detail: { endpoint: ${JSON.stringify(endpoint)} } }));
       return true;
     })()`,
+    // Jump to a queue item by dispatching its own navigation endpoint. This works whether or
+    // not the full player page is open (clicking the item's play button only works while open).
     playQueueItem: (i) => `(() => {
-      const items = [...document.querySelectorAll('ytmusic-player-page ytmusic-player-queue-item, ytmusic-player-page #contents > ytmusic-playlist-panel-video-renderer')];
+      const items = [...document.querySelectorAll('ytmusic-player-queue-item, ytmusic-player-queue ytmusic-playlist-panel-video-renderer')];
       const it = items[${Number(i) || 0}];
       if (!it) return false;
-      const target = it.querySelector('.song-info') || it.querySelector('.song-title') || it;
-      target.click();
-      return true;
+      const ep = it.data && (it.data.navigationEndpoint || it.data.playNavigationEndpoint || it.data.queueNavigationEndpoint);
+      if (ep) {
+        document.querySelector('ytmusic-app').dispatchEvent(new CustomEvent('yt-navigate', { bubbles: true, composed: true, detail: { endpoint: ep } }));
+        return true;
+      }
+      const pb = it.querySelector('#play-button button');
+      if (pb) { pb.click(); return true; }
+      return false;
     })()`,
     signInUrl: () => `(() => {
       const a = document.querySelector('a.sign-in-link, ytmusic-nav-bar a[href*="ServiceLogin"], a[href*="accounts.google.com"]');
@@ -183,7 +195,7 @@ window.YTM = (() => {
 
   // Read the play queue ("Up next").
   const queueScript = `(() => {
-    const items = [...document.querySelectorAll('ytmusic-player-page ytmusic-player-queue-item, ytmusic-player-page #contents > ytmusic-playlist-panel-video-renderer')];
+    const items = [...document.querySelectorAll('ytmusic-player-queue-item, ytmusic-player-queue ytmusic-playlist-panel-video-renderer')];
     return items.slice(0, 80).map((it, i) => ({
       i,
       title: (it.querySelector('.song-title') || {}).textContent?.trim() || '',

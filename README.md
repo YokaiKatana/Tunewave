@@ -28,6 +28,10 @@ Download `Tunewave-Portable-X.Y.Z-Windows.zip` from the [Releases](../../release
 - **Album-art colours**: the player and Now Playing panel pick up the colours of the current cover. You can also let the accent colour follow the cover.
 - Clicking a song keeps you on the page you were browsing, like Spotify, instead of jumping to YouTube Music's full-screen player. Use the ⤢ button to open the full player (with lyrics and related songs) whenever you want it.
 - Media keys and the Windows media overlay, taskbar thumbnail buttons (prev / play / next), remembered window size and volume.
+- **System tray** with play/pause/next and show/hide, plus optional close-to-tray and minimise-to-tray so music keeps playing in the background.
+- **Global media keys** that work even when Tunewave isn't focused.
+- **Stays signed in**: refreshes your login from your browser in the background so Google doesn't sign you out.
+- Click any song in the Now Playing queue to jump straight to it.
 - Keyboard: `Space` play/pause · `Ctrl+→/←` next/previous · `Ctrl+↑/↓` volume · `M` mute · `Ctrl+K` search · `Alt+←/→` back/forward · `Ctrl+R` reload.
 
 ## If something breaks
