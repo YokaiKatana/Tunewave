@@ -99,7 +99,8 @@ function createWindow() {
     wc.setUserAgent(CHROME_UA);
     // Popups: sign-in style flows stay in-app, everything else opens in the default browser.
     wc.setWindowOpenHandler(({ url }) => {
-      if (isAllowedInApp(url)) { wc.loadURL(url); }
+      if (isGoogleSignIn(url)) { startBrowserSignIn(url); }
+      else if (isAllowedInApp(url)) { wc.loadURL(url); }
       else if (/^https?:/.test(url)) { shell.openExternal(url); }
       return { action: 'deny' };
     });
@@ -120,6 +121,9 @@ function createWindow() {
       if (name) { e.preventDefault(); win.webContents.send('shortcut', name); }
     });
     wc.on('will-navigate', (e, url) => {
+      // YouTube Music's own "sign in" prompts jump to Google's page, which Google blocks
+      // inside the app. Intercept those and refresh the login from the user's browser instead.
+      if (isGoogleSignIn(url)) { e.preventDefault(); startBrowserSignIn(url); return; }
       if (!isAllowedInApp(url)) { e.preventDefault(); if (/^https?:/.test(url)) shell.openExternal(url); }
     });
   });
@@ -174,9 +178,20 @@ const DEFAULT_SIGNIN = 'https://accounts.google.com/ServiceLogin?ltmpl=music&ser
 const { signInWithBrowser } = require('./browser-signin');
 const sendSignin = (state, info = {}) => { if (win && !win.isDestroyed()) win.webContents.send('signin-status', { state, ...info }); };
 
-ipcMain.on('open-signin', (_e, url) => {
-  const start = typeof url === 'string' && isAllowedInApp(url) ? url : DEFAULT_SIGNIN;
-  // Preferred: your real browser (Google allows sign-in there, including passkeys / QR codes).
+// A Google sign-in / account page (which Google blocks inside the app).
+const isGoogleSignIn = (url) => {
+  try {
+    const u = new URL(url);
+    if (u.hostname === 'accounts.google.com' || u.hostname === 'accounts.youtube.com') return true;
+    if (/(^|\.)google\.[a-z.]+$/.test(u.hostname) && /(servicelogin|signin|accountchooser|addsession|logout)/i.test(u.pathname)) return true;
+    return false;
+  } catch { return false; }
+};
+
+// Sign in (or refresh the login) through the user's own browser, reusing their existing
+// session where possible. Used by the sidebar button and by YouTube Music's own sign-in prompts.
+function startBrowserSignIn(url) {
+  const start = typeof url === 'string' && isAllowedInApp(url) && isGoogleSignIn(url) ? url : DEFAULT_SIGNIN;
   signInWithBrowser({
     url: start, partition: PARTITION,
     onStatus: (state, info) => {
@@ -185,7 +200,9 @@ ipcMain.on('open-signin', (_e, url) => {
       sendSignin(state, info);
     },
   });
-});
+}
+
+ipcMain.on('open-signin', (_e, url) => startBrowserSignIn(url));
 
 // Fallback: Google's page in an app window (Google may refuse this; used only when no browser is found).
 function openSignInWindow(start) {
