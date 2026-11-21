@@ -54,6 +54,22 @@ npm start               # run in development
 npm run build:win       # Windows installer + zip in dist/
 ```
 
+## Privacy
+
+Tunewave has no servers, no account system and no telemetry. Your login is
+stored only on your own computer, and the only networked systems it talks to are
+Google / YouTube (to sign in and play music, at your request) and GitHub (to
+check for updates). See [PRIVACY.md](PRIVACY.md) for the full policy.
+
+## Code signing policy
+
+Tunewave is applying to the SignPath Foundation open-source program so that
+Windows release binaries can be code-signed. See
+[CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md) for the full policy, including
+team roles and the release/signing process.
+
+> Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
 ## Notes
 
 - Tunewave loads the official music.youtube.com inside the app. Your login, Premium perks (no ads, background play, downloads in the official apps) and library all come from your account. Google's own sign-in page handles your password, and Tunewave never sees it.

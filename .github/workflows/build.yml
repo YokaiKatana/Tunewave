@@ -72,4 +72,7 @@ jobs:
             Tunewave tells you when a new version is out (Update button at the top right).
 
             Windows may show "Windows protected your PC" because the app isn't code-signed. Click **More info → Run anyway**.
+
+            ---
+            [Code signing policy](https://github.com/YokaiKatana/Tunewave/blob/main/CODE_SIGNING_POLICY.md) · [Privacy](https://github.com/YokaiKatana/Tunewave/blob/main/PRIVACY.md)
           files: dist/Tunewave-Portable-*.zip
