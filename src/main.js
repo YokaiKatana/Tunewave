@@ -233,25 +233,37 @@ function setMediaKeys(enabled) {
 ipcMain.on('tray-behavior', (_e, b) => { trayBehavior = { ...trayBehavior, ...(b || {}) }; });
 ipcMain.on('media-keys', (_e, enabled) => setMediaKeys(!!enabled));
 
-let savedBounds = null;
-ipcMain.on('mini-mode', (_e, on) => {
-  if (!win) return;
-  try {
-    if (on) {
-      savedBounds = win.getNormalBounds();
-      win.unmaximize();
-      win.setMinimumSize(240, 300);
-      const b = savedBounds || { x: 100, y: 100, width: 1200, height: 800 };
-      const w = 300, h = 380;
-      win.setBounds({ width: w, height: h, x: b.x + Math.max(0, b.width - w - 24), y: b.y + 48 });
-      win.setAlwaysOnTop(true, 'floating');
-    } else {
-      win.setAlwaysOnTop(false);
-      win.setMinimumSize(900, 600);
-      if (savedBounds) win.setBounds(savedBounds);
-    }
-  } catch {}
-});
+// ---- Mini player (its own small frameless window) ----
+let miniWin = null;
+function openMini() {
+  if (miniWin && !miniWin.isDestroyed()) { miniWin.show(); miniWin.focus(); return; }
+  const b = win ? win.getNormalBounds() : { x: 200, y: 200, width: 1200, height: 800 };
+  const w = 300, h = 392;
+  miniWin = new BrowserWindow({
+    width: w, height: h, x: b.x + Math.max(0, b.width - w - 30), y: b.y + 60,
+    minWidth: 240, minHeight: 320, maxWidth: 520, maxHeight: 640,
+    frame: false, transparent: true, resizable: true, maximizable: false, fullscreenable: false,
+    alwaysOnTop: true, skipTaskbar: false, backgroundColor: '#00000000',
+    title: 'Tunewave', icon: path.join(__dirname, 'assets', 'icon.png'),
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  miniWin.setAlwaysOnTop(true, 'floating');
+  miniWin.loadFile(path.join(__dirname, 'renderer', 'mini.html'));
+  miniWin.on('closed', () => { miniWin = null; if (win) win.webContents.send('mini-active', false); });
+  miniWin.webContents.on('will-navigate', (e) => e.preventDefault());
+  miniWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  if (win) { win.hide(); win.webContents.send('mini-active', true); }
+}
+function closeMini(restore) {
+  if (miniWin && !miniWin.isDestroyed()) miniWin.destroy();
+  miniWin = null;
+  if (win) { win.webContents.send('mini-active', false); if (restore) { win.show(); win.focus(); } }
+}
+ipcMain.on('mini-open', () => openMini());
+ipcMain.on('mini-close', () => closeMini(true));
+ipcMain.on('mini-minimize', () => { if (miniWin) miniWin.minimize(); });
+ipcMain.on('mini-command', (_e, cmd) => { if (win) win.webContents.send('player-command', cmd); });
+ipcMain.on('mini-state', (_e, data) => { if (miniWin && !miniWin.isDestroyed()) miniWin.webContents.send('mini-state-update', data); });
 
 ipcMain.on('titlebar-colors', (_e, { color, symbolColor }) => {
   if (process.platform === 'win32' && win) {

@@ -68,6 +68,7 @@
     applyPattern();
     renderPatternGrid();
     injectYtmCss();
+    sendMiniState();
   }
   function applyTint() {
     const r = document.documentElement.style;
@@ -219,7 +220,6 @@
     const prev = state;
     state = s; stamp = performance.now();
     app.classList.toggle('no-track', !s.hasTrack);
-    $('#mini').classList.toggle('no-track', !s.hasTrack);
 
     // track info
     const key = `${s.title}|${s.artist}|${s.art}`;
@@ -229,8 +229,6 @@
       $('#pl-artist').textContent = s.hasTrack ? s.artist : '';
       $('#np-title').textContent = s.hasTrack ? s.title : 'Nothing playing';
       $('#np-artist').textContent = s.hasTrack ? [s.artist, s.album].filter(Boolean).join(' · ') : 'Pick something to listen to';
-      $('#mini-title').textContent = s.hasTrack ? s.title : 'Nothing playing';
-      $('#mini-artist').textContent = s.hasTrack ? s.artist : '';
       setArt(s.hasTrack ? s.art : '');
       api.nowPlaying({ hasTrack: s.hasTrack, playing: s.playing, title: s.title, artist: s.artist });
       setTimeout(refreshQueue, 600);
@@ -239,7 +237,6 @@
       api.nowPlaying({ hasTrack: s.hasTrack, playing: s.playing, title: s.title, artist: s.artist });
     }
     setIcon($('#btn-play'), s.playing ? 'pause' : 'play');
-    setIcon($('#mini-play'), s.playing ? 'pause' : 'play');
     $('#btn-play').title = s.playing ? 'Pause (Space)' : 'Play (Space)';
 
     // volume
@@ -251,7 +248,7 @@
     $('#btn-repeat').classList.toggle('on', s.repeat !== 'off');
     $('#btn-repeat').title = s.repeat === 'one' ? 'Repeat one' : s.repeat === 'all' ? 'Repeat all' : 'Repeat off';
     const liked = s.likeStatus === 'LIKE';
-    for (const b of [$('#pl-like'), $('#np-like'), $('#mini-like')]) { setIcon(b, liked ? 'heart' : 'heartOutline'); b.classList.toggle('liked', liked); b.title = liked ? 'Remove from Liked Music' : 'Save to Liked Music'; }
+    for (const b of [$('#pl-like'), $('#np-like')]) { setIcon(b, liked ? 'heart' : 'heartOutline'); b.classList.toggle('liked', liked); b.title = liked ? 'Remove from Liked Music' : 'Save to Liked Music'; }
 
     // YouTube Music's own full-screen player page
     setIcon($('#btn-fullplayer'), s.playerPageOpen ? 'closeFull' : 'openFull');
@@ -271,11 +268,12 @@
       $('#btn-account').dataset.photo = s.accountPhoto;
       $('#btn-account').innerHTML = `<img src="${esc(s.accountPhoto)}" alt="" />`;
     }
+    sendMiniState();
   }
 
   function setArt(url) {
     if (url === lastArt) return; lastArt = url;
-    for (const [img, wrap, big] of [[$('#pl-art'), $('#pl-art-wrap'), false], [$('#np-art'), $('.np-art-wrap'), true], [$('#mini-art'), $('.mini-art-wrap'), true]]) {
+    for (const [img, wrap, big] of [[$('#pl-art'), $('#pl-art-wrap'), false], [$('#np-art'), $('.np-art-wrap'), true]]) {
       if (!url) { img.removeAttribute('src'); wrap.classList.remove('has-art'); continue; }
       const src = big ? bigArt(url) : url;
       img.onerror = () => { if (big && img.src !== url) img.src = url; };
@@ -299,7 +297,6 @@
       progSlider.set(d ? t / d : 0);
       $('#t-cur').textContent = fmt(t);
       $('#t-dur').textContent = fmt(d);
-      const mf = $('.mini-fill'); if (mf) mf.style.width = (d ? Math.min(100, (t / d) * 100) : 0) + '%';
     }
     updateSleepUI();
     requestAnimationFrame(tick);
@@ -446,7 +443,6 @@
     if (t.classList.contains('pl-item')) return openPlaylist(t.dataset.id);
     if (t.classList.contains('q-item')) return cmd('playQueueItem', Number(t.dataset.qi));
     if (t.dataset.sleep) { setSleep(t.dataset.sleep); closeSleepMenu(); return; }
-    if (t.dataset.mcmd) return cmd(t.dataset.mcmd);
     if (t.dataset.theme) { settings.theme = t.dataset.theme; settings.customAccent = ''; save(); applyTheme(); syncSettingsUI(); return; }
     if (t.dataset.pattern) { settings.pattern = t.dataset.pattern; save(); applyPattern(); renderPatternGrid(); return; }
     if (t.dataset.tab) return openModal(t.dataset.tab);
@@ -467,7 +463,6 @@
       case 'btn-mute': cmd('mute'); break;
       case 'btn-sleep': $('#sleep-menu').hidden ? openSleepMenu() : closeSleepMenu(); break;
       case 'btn-mini': enterMini(); break;
-      case 'btn-mini-restore': exitMini(); break;
       case 'pl-art-wrap': case 'btn-fullplayer': case 'btn-open-queue':
         lastPlayerToggle = Date.now(); userWantsPlayer = !state.playerPageOpen; cmd('togglePlayerPage'); break;
       case 'btn-np': case 'btn-np-close': settings.showNP = t.id === 'btn-np' ? !settings.showNP : false; save(); applyLayout(); lastQueueJSON = ''; refreshQueue(); break;
@@ -531,6 +526,7 @@
   api.onPlayerCommand((c) => cmd(c));
   if (api.onShortcut) api.onShortcut(shortcut);
   if (api.onSignedIn) api.onSignedIn(afterSignIn);
+  if (api.onMiniActive) api.onMiniActive((on) => { miniActive = on; if (on) sendMiniState(); });
   if (api.onSigninStatus) api.onSigninStatus((s) => {
     const msg = {
       opened: s.real
@@ -554,9 +550,17 @@
   let privacyShown = false;
   try { if (!localStorage.getItem(PRIVACY_KEY)) { privacyShown = true; setTimeout(openPrivacy, 600); } } catch {}
 
-  // ---------- mini player ----------
-  function enterMini() { $('#mini').hidden = false; closeSleepMenu(); closeModal(); if (api.setMiniMode) api.setMiniMode(true); }
-  function exitMini() { $('#mini').hidden = true; if (api.setMiniMode) api.setMiniMode(false); }
+  // ---------- mini player (separate window) ----------
+  let miniActive = false;
+  function enterMini() { closeSleepMenu(); closeModal(); if (api.openMini) api.openMini(); }
+  function miniColors() {
+    const cs = getComputedStyle(document.documentElement); const g = (k) => cs.getPropertyValue(k).trim();
+    return { bg: g('--bg'), surface: g('--surface'), elevated: g('--elevated'), hover: g('--hover'), text: g('--text'), subtext: g('--subtext'), accent: g('--accent'), onAccent: g('--on-accent'), tint: g('--tint'), tintStrong: g('--tint-strong') };
+  }
+  function sendMiniState() {
+    if (!miniActive || !api.sendMiniState) return;
+    api.sendMiniState({ hasTrack: state.hasTrack, playing: state.playing, title: state.title, artist: state.artist, art: state.art, liked: state.likeStatus === 'LIKE', time: state.time, duration: state.duration, css: miniColors() });
+  }
 
   // ---------- sleep timer ----------
   let sleep = { endsAt: 0, timer: null, mode: null };
