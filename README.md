@@ -32,6 +32,9 @@ Download `Tunewave-Portable-X.Y.Z-Windows.zip` from the [Releases](../../release
 - **Global media keys** that work even when Tunewave isn't focused.
 - **Stays signed in**: refreshes your login from your browser in the background so Google doesn't sign you out.
 - Click any song in the Now Playing queue to jump straight to it.
+- **Mini player**: a compact, always-on-top widget with artwork and controls.
+- **Sleep timer** (15/30/45/60 min or end of song).
+- **Background patterns** that tint to your theme colour.
 - Keyboard: `Space` play/pause · `Ctrl+→/←` next/previous · `Ctrl+↑/↓` volume · `M` mute · `Ctrl+K` search · `Alt+←/→` back/forward · `Ctrl+R` reload.
 
 ## If something breaks

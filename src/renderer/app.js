@@ -12,13 +12,15 @@
   const app = $('#app');
 
   // ---------- settings ----------
-  const DEFAULTS = { theme: 'classic', customAccent: '', dynamic: true, dynamicAccent: false, autoClose: true, showNP: true, compact: false, original: false, volume: 100, closeToTray: true, minimizeToTray: false, mediaKeys: true };
+  const DEFAULTS = { theme: 'classic', customAccent: '', pattern: 'none', dynamic: true, dynamicAccent: false, autoClose: true, showNP: true, compact: false, original: false, volume: 100, closeToTray: true, minimizeToTray: false, mediaKeys: true };
   const settings = (() => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('tw-settings') || '{}') }; } catch { return { ...DEFAULTS }; } })();
   const save = () => { try { localStorage.setItem('tw-settings', JSON.stringify(settings)); } catch {} };
 
   // ---------- icons ----------
   const setIcon = (el, name) => { if (el && el.dataset.iconNow !== name) { el.innerHTML = window.twIcon(name); el.dataset.iconNow = name; } };
   $$('[data-icon]').forEach((el) => setIcon(el, el.dataset.icon));
+  // Sleep button keeps a badge child, so add its icon without clobbering it.
+  $('#btn-sleep').insertAdjacentHTML('afterbegin', window.twIcon('moon'));
 
   document.documentElement.classList.add('platform-' + api.platform);
   if (api.platform === 'win32') document.documentElement.style.setProperty('--wc-space', '144px');
@@ -63,6 +65,8 @@
     applyTint();
     api.setTitlebarColors(t.bg, t.subtext);
     renderThemeGrid();
+    applyPattern();
+    renderPatternGrid();
     injectYtmCss();
   }
   function applyTint() {
@@ -74,6 +78,21 @@
       r.setProperty('--tint', 'transparent');
       r.setProperty('--tint-strong', C.rgba(theme().elevated, 0.9));
     }
+  }
+
+  function applyPattern() {
+    const p = (window.TW_PATTERNS || []).find((x) => x.id === settings.pattern) || window.TW_PATTERNS[0];
+    const col = C.rgba(accent(), 0.10);
+    document.documentElement.style.setProperty('--pattern', window.twPatternUrl(p, col));
+  }
+  function renderPatternGrid() {
+    const g = $('#pattern-grid'); if (!g) return;
+    const col = C.rgba(accent(), 0.55);
+    g.innerHTML = window.TW_PATTERNS.map((p) => `
+      <button class="pat-card${p.id === settings.pattern ? ' active' : ''}" data-pattern="${p.id}" title="${p.name}">
+        <div class="pat-prev" style="background-image:${p.id === 'none' ? 'none' : window.twPatternUrl(p, col)}">${p.id === 'none' ? '<span>None</span>' : ''}</div>
+        <span class="pat-name">${p.name}</span>
+      </button>`).join('');
   }
 
   let cssKeys = []; let cssChain = Promise.resolve();
@@ -200,6 +219,7 @@
     const prev = state;
     state = s; stamp = performance.now();
     app.classList.toggle('no-track', !s.hasTrack);
+    $('#mini').classList.toggle('no-track', !s.hasTrack);
 
     // track info
     const key = `${s.title}|${s.artist}|${s.art}`;
@@ -209,6 +229,8 @@
       $('#pl-artist').textContent = s.hasTrack ? s.artist : '';
       $('#np-title').textContent = s.hasTrack ? s.title : 'Nothing playing';
       $('#np-artist').textContent = s.hasTrack ? [s.artist, s.album].filter(Boolean).join(' · ') : 'Pick something to listen to';
+      $('#mini-title').textContent = s.hasTrack ? s.title : 'Nothing playing';
+      $('#mini-artist').textContent = s.hasTrack ? s.artist : '';
       setArt(s.hasTrack ? s.art : '');
       api.nowPlaying({ hasTrack: s.hasTrack, playing: s.playing, title: s.title, artist: s.artist });
       setTimeout(refreshQueue, 600);
@@ -217,6 +239,7 @@
       api.nowPlaying({ hasTrack: s.hasTrack, playing: s.playing, title: s.title, artist: s.artist });
     }
     setIcon($('#btn-play'), s.playing ? 'pause' : 'play');
+    setIcon($('#mini-play'), s.playing ? 'pause' : 'play');
     $('#btn-play').title = s.playing ? 'Pause (Space)' : 'Play (Space)';
 
     // volume
@@ -228,7 +251,7 @@
     $('#btn-repeat').classList.toggle('on', s.repeat !== 'off');
     $('#btn-repeat').title = s.repeat === 'one' ? 'Repeat one' : s.repeat === 'all' ? 'Repeat all' : 'Repeat off';
     const liked = s.likeStatus === 'LIKE';
-    for (const b of [$('#pl-like'), $('#np-like')]) { setIcon(b, liked ? 'heart' : 'heartOutline'); b.classList.toggle('liked', liked); b.title = liked ? 'Remove from Liked Music' : 'Save to Liked Music'; }
+    for (const b of [$('#pl-like'), $('#np-like'), $('#mini-like')]) { setIcon(b, liked ? 'heart' : 'heartOutline'); b.classList.toggle('liked', liked); b.title = liked ? 'Remove from Liked Music' : 'Save to Liked Music'; }
 
     // YouTube Music's own full-screen player page
     setIcon($('#btn-fullplayer'), s.playerPageOpen ? 'closeFull' : 'openFull');
@@ -252,7 +275,7 @@
 
   function setArt(url) {
     if (url === lastArt) return; lastArt = url;
-    for (const [img, wrap, big] of [[$('#pl-art'), $('#pl-art-wrap'), false], [$('#np-art'), $('.np-art-wrap'), true]]) {
+    for (const [img, wrap, big] of [[$('#pl-art'), $('#pl-art-wrap'), false], [$('#np-art'), $('.np-art-wrap'), true], [$('#mini-art'), $('.mini-art-wrap'), true]]) {
       if (!url) { img.removeAttribute('src'); wrap.classList.remove('has-art'); continue; }
       const src = big ? bigArt(url) : url;
       img.onerror = () => { if (big && img.src !== url) img.src = url; };
@@ -276,7 +299,9 @@
       progSlider.set(d ? t / d : 0);
       $('#t-cur').textContent = fmt(t);
       $('#t-dur').textContent = fmt(d);
+      const mf = $('.mini-fill'); if (mf) mf.style.width = (d ? Math.min(100, (t / d) * 100) : 0) + '%';
     }
+    updateSleepUI();
     requestAnimationFrame(tick);
   }
 
@@ -420,7 +445,10 @@
     if (t.dataset.act === 'signin') return signIn();
     if (t.classList.contains('pl-item')) return openPlaylist(t.dataset.id);
     if (t.classList.contains('q-item')) return cmd('playQueueItem', Number(t.dataset.qi));
+    if (t.dataset.sleep) { setSleep(t.dataset.sleep); closeSleepMenu(); return; }
+    if (t.dataset.mcmd) return cmd(t.dataset.mcmd);
     if (t.dataset.theme) { settings.theme = t.dataset.theme; settings.customAccent = ''; save(); applyTheme(); syncSettingsUI(); return; }
+    if (t.dataset.pattern) { settings.pattern = t.dataset.pattern; save(); applyPattern(); renderPatternGrid(); return; }
     if (t.dataset.tab) return openModal(t.dataset.tab);
     switch (t.id) {
       case 'btn-back': wv.canGoBack() && wv.goBack(); break;
@@ -437,6 +465,9 @@
       case 'btn-repeat': cmd('repeat'); break;
       case 'pl-like': case 'np-like': cmd('like'); break;
       case 'btn-mute': cmd('mute'); break;
+      case 'btn-sleep': $('#sleep-menu').hidden ? openSleepMenu() : closeSleepMenu(); break;
+      case 'btn-mini': enterMini(); break;
+      case 'btn-mini-restore': exitMini(); break;
       case 'pl-art-wrap': case 'btn-fullplayer': case 'btn-open-queue':
         lastPlayerToggle = Date.now(); userWantsPlayer = !state.playerPageOpen; cmd('togglePlayerPage'); break;
       case 'btn-np': case 'btn-np-close': settings.showNP = t.id === 'btn-np' ? !settings.showNP : false; save(); applyLayout(); lastQueueJSON = ''; refreshQueue(); break;
@@ -450,6 +481,7 @@
     }
   });
   $('.modal-backdrop').addEventListener('click', closeModal);
+  document.addEventListener('mousedown', (e) => { if (!$('#sleep-menu').hidden && !e.target.closest('#sleep-menu') && !e.target.closest('#btn-sleep')) closeSleepMenu(); });
   $('#search-form').addEventListener('submit', (e) => { e.preventDefault(); search($('#search-input').value); $('#search-input').blur(); });
   $('#lib-filter').addEventListener('input', renderPlaylists);
   $('#accent-picker').addEventListener('input', (e) => { settings.customAccent = e.target.value; settings.dynamicAccent = false; save(); applyTheme(); $('#opt-dynamic-accent').checked = false; });
@@ -479,7 +511,7 @@
   }
   document.addEventListener('keydown', (e) => {
     const typing = e.target.matches('input, textarea');
-    if (e.key === 'Escape') { if (!$('#privacy').hidden) { if (localStorage.getItem(PRIVACY_KEY)) closePrivacy(); return; } if (!$('#modal').hidden) closeModal(); else if (typing) e.target.blur(); return; }
+    if (e.key === 'Escape') { if (!$('#sleep-menu').hidden) { closeSleepMenu(); return; } if (!$('#privacy').hidden) { if (localStorage.getItem(PRIVACY_KEY)) closePrivacy(); return; } if (!$('#modal').hidden) closeModal(); else if (typing) e.target.blur(); return; }
     const ctrl = e.ctrlKey || e.metaKey;
     if (ctrl && (e.key === 'k' || e.key === 'l')) { e.preventDefault(); return shortcut('search'); }
     if (ctrl && e.key === 'r') { e.preventDefault(); return shortcut('reload'); }
@@ -521,6 +553,61 @@
   $('#btn-privacy-show').addEventListener('click', () => { closeModal(); openPrivacy(); });
   let privacyShown = false;
   try { if (!localStorage.getItem(PRIVACY_KEY)) { privacyShown = true; setTimeout(openPrivacy, 600); } } catch {}
+
+  // ---------- mini player ----------
+  function enterMini() { $('#mini').hidden = false; closeSleepMenu(); closeModal(); if (api.setMiniMode) api.setMiniMode(true); }
+  function exitMini() { $('#mini').hidden = true; if (api.setMiniMode) api.setMiniMode(false); }
+
+  // ---------- sleep timer ----------
+  let sleep = { endsAt: 0, timer: null, mode: null };
+  function clearSleep(announce) {
+    if (sleep.timer) clearTimeout(sleep.timer);
+    sleep = { endsAt: 0, timer: null, mode: null };
+    $('#btn-sleep').classList.remove('on');
+    $('#sleep-badge').hidden = true;
+    $('#btn-sleep').title = 'Sleep timer';
+    if (announce) toast('Sleep timer off');
+  }
+  function fireSleep() {
+    if (state.playing) cmd('playPause');
+    clearSleep(false);
+    toast('Sleep timer — paused');
+  }
+  function setSleep(val) {
+    if (val === 'off') { clearSleep(true); return; }
+    if (sleep.timer) clearTimeout(sleep.timer);
+    let ms;
+    if (val === 'endoftrack') {
+      const rem = (state.duration || 0) - (state.time || 0);
+      ms = Math.max(3, rem) * 1000;
+      sleep.mode = 'track';
+    } else {
+      ms = Number(val) * 60 * 1000;
+      sleep.mode = 'min';
+    }
+    sleep.endsAt = Date.now() + ms;
+    sleep.timer = setTimeout(fireSleep, ms);
+    $('#btn-sleep').classList.add('on');
+    toast(val === 'endoftrack' ? 'Sleep timer: end of this song' : `Sleep timer: ${val} min`);
+  }
+  function openSleepMenu() {
+    const m = $('#sleep-menu'); const b = $('#btn-sleep').getBoundingClientRect();
+    m.hidden = false;
+    const mr = m.getBoundingClientRect();
+    m.style.left = Math.max(8, Math.min(b.left + b.width / 2 - mr.width / 2, window.innerWidth - mr.width - 8)) + 'px';
+    m.style.top = (b.top - mr.height - 8) + 'px';
+    $('.pop-off', m) && ($('#sleep-menu .pop-off').hidden = !sleep.endsAt);
+  }
+  const closeSleepMenu = () => ($('#sleep-menu').hidden = true);
+  function updateSleepUI() {
+    if (!sleep.endsAt) return;
+    const remSec = Math.max(0, Math.round((sleep.endsAt - Date.now()) / 1000));
+    const mm = Math.floor(remSec / 60), ss = remSec % 60;
+    const badge = $('#sleep-badge');
+    badge.hidden = false;
+    badge.textContent = mm >= 1 ? mm + 'm' : ss + 's';
+    $('#btn-sleep').title = `Sleep timer — ${mm}:${String(ss).padStart(2, '0')} left`;
+  }
 
   // ---------- updates ----------
   function showUpdate(u) {

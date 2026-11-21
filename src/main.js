@@ -233,6 +233,26 @@ function setMediaKeys(enabled) {
 ipcMain.on('tray-behavior', (_e, b) => { trayBehavior = { ...trayBehavior, ...(b || {}) }; });
 ipcMain.on('media-keys', (_e, enabled) => setMediaKeys(!!enabled));
 
+let savedBounds = null;
+ipcMain.on('mini-mode', (_e, on) => {
+  if (!win) return;
+  try {
+    if (on) {
+      savedBounds = win.getNormalBounds();
+      win.unmaximize();
+      win.setMinimumSize(240, 300);
+      const b = savedBounds || { x: 100, y: 100, width: 1200, height: 800 };
+      const w = 300, h = 380;
+      win.setBounds({ width: w, height: h, x: b.x + Math.max(0, b.width - w - 24), y: b.y + 48 });
+      win.setAlwaysOnTop(true, 'floating');
+    } else {
+      win.setAlwaysOnTop(false);
+      win.setMinimumSize(900, 600);
+      if (savedBounds) win.setBounds(savedBounds);
+    }
+  } catch {}
+});
+
 ipcMain.on('titlebar-colors', (_e, { color, symbolColor }) => {
   if (process.platform === 'win32' && win) {
     try { win.setTitleBarOverlay({ color, symbolColor, height: 56 }); } catch {}
